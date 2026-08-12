@@ -146,15 +146,20 @@ public:
     const char* GetName() override { return "Necola-ADS"; }
     const char* GetVersion() override { return sFixVer.c_str(); }
 
+    // SHARED once_flag across both callbacks — otherwise OnGameLaunch and
+    // OnModuleLoaded each get their OWN local static once_flag and spawn two
+    // separate init threads, both running ModuleEntry.Load() concurrently
+    // → duplicate MH_Initialize + duplicate hook installs → crash.
+    static std::once_flag s_initOnce;
+
     void OnModuleLoaded(const char* module_name, std::uintptr_t handle) override {
         char buf[256];
         _snprintf_s(buf, sizeof(buf), _TRUNCATE,
             "OnModuleLoaded(\"%s\", 0x%p)", module_name ? module_name : "(null)", (void*)handle);
         RawLog(buf);
 
-        static std::once_flag once;
-        std::call_once(once, [this]() {
-            RawLog("spawning InitThreadFunc");
+        std::call_once(s_initOnce, []() {
+            RawLog("spawning InitThreadFunc (from OnModuleLoaded)");
             if (auto h = CreateThread(NULL, 0, &NecolaL4NPlugin::InitThreadFunc, nullptr, 0, NULL)) {
                 CloseHandle(h);
             } else {
@@ -165,8 +170,7 @@ public:
 
     void OnGameLaunch() override {
         RawLog("OnGameLaunch() called");
-        static std::once_flag once;
-        std::call_once(once, [this]() {
+        std::call_once(s_initOnce, []() {
             RawLog("spawning InitThreadFunc (from OnGameLaunch)");
             if (auto h = CreateThread(NULL, 0, &NecolaL4NPlugin::InitThreadFunc, nullptr, 0, NULL)) {
                 CloseHandle(h);
@@ -216,6 +220,12 @@ public:
     void OnD3DCreated(void* d3d) override {}
     void OnD3DDeviceCreated(void* d3d_device, bool is_dxvk) override {}
 };
+
+// Definition of the shared once_flag — guarantees only ONE init thread is
+// ever spawned, regardless of which L4N callback fires first or how many
+// times. Without this, OnGameLaunch + OnModuleLoaded each create their own
+// local once_flag and start separate threads → duplicate ModuleEntry.Load().
+std::once_flag NecolaL4NPlugin::s_initOnce;
 
 
 extern "C" __declspec(dllexport) IL4NPlugin* GetL4NPluginInstance() {
