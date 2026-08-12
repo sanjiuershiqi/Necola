@@ -1,0 +1,79 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  VCPKG_DEFAULT_TRIPLET: x86-windows
+  VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Cache vcpkg
+        id: cache-vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            vcpkg
+            ~/AppData/Local/vcpkg/archives
+          key: vcpkg-inipp-x86-windows-${{ runner.os }}-20260812
+
+      - name: Bootstrap vcpkg
+        if: steps.cache-vcpkg.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
+          & vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          & vcpkg\vcpkg.exe install inipp:x86-windows
+
+      - name: Show vcpkg list
+        shell: pwsh
+        run: |
+          & vcpkg\vcpkg.exe list
+
+      - name: Configure (release, x86)
+        shell: pwsh
+        run: xmake f -m release -p windows -a x86 -y -v
+
+      - name: Build
+        shell: pwsh
+        run: xmake -y -v
+
+      - name: Locate artifact
+        id: artifact
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Path build -Recurse -Filter "necola_ads.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $dll) { throw "necola_ads.dll not found in build/" }
+          "path=$($dll.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Built: $($dll.FullName)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: necola_ads-${{ github.sha }}
+          path: ${{ steps.artifact.outputs.path }}
+          if-no-files-found: error
+
+      - name: Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.artifact.outputs.path }}
+          name: ${{ github.ref_name }}

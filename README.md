@@ -36,14 +36,16 @@ necola/
 
 - Windows + MSVC (x86)
 - [xmake](https://xmake.io)
-- [vcpkg](https://github.com/microsoft/vcpkg):`minhook`、`inipp`、`spdlog`
+- [vcpkg](https://github.com/microsoft/vcpkg):`inipp`(minhook 与 spdlog 由 xmake-repo 自动拉取)
 - 依赖已在 [xmake.lua](xmake.lua) 中声明,首次 `xmake` 会自动拉取。
 
 ### 构建
 
+#### 方式一:本地构建
+
 ```bash
 # release 构建
-xmake f -m release
+xmake f -m release -p windows -a x86
 xmake
 
 # 或使用 just
@@ -51,6 +53,23 @@ just build
 ```
 
 产物:`build/windows/x86/release/necola_ads.dll`
+
+#### 方式二:GitHub Actions(无需本地环境)
+
+仓库已配置 [.github/workflows/build.yml](.github/workflows/build.yml),推送到 `main`/`master` 分支即自动构建。
+
+- **自动触发**:push 到 `main`/`master`、PR、打 `v*` 标签
+- **手动触发**:GitHub 仓库 → Actions → Build → Run workflow
+- **产物下载**:Actions 运行成功后,在运行详情页底部 Artifacts 下载 `necola_ads-<commit>`
+- **Release 发布**:打 `git tag v1.4.0 && git push origin v1.4.0`,CI 会自动构建并发布到 GitHub Releases
+
+环境:`windows-latest` + xmake + vcpkg(已缓存)。无需在本地配置任何工具链。
+
+```bash
+# 触发一次 release 发布
+git tag v1.4.0
+git push origin v1.4.0
+```
 
 ### 安装
 
