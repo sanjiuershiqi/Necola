@@ -1,0 +1,187 @@
+// 修改后需要将本文件保存为config.vdf
+// 版本更新增加了配置项的情况下，你可能需要检查config_template.vdf，获取新配置项的示例
+// Valve KeyValue Format
+"config" {
+    // 1代表是，0代表否
+    // "//"表示注释，从"//"开始到行末的内容会被忽略
+
+    // !!!  语法错误会导致配置文件失效  !!!!
+    // 不要剪切或删减部分片段，除非你知道你在干什么
+    // config.vdf的格式和autoexec.cfg是不一样的，请按照config_template.vdf的格式来修改
+
+    // 环境变量设置
+    "environment_variables" {
+        // vulkan loader的环境变量
+        // 使用DXVK和ReShade Bridge的情况下，使用以下两条参数能解决内存占用异常；删除以下两行开头的"//"让参数生效
+        // "VK_LOADER_LAYERS_DISABLE" "*"               // 黑名单，参数"*"会禁用所有依赖vulkan layer机制的功能，例如rtss微星小飞机、obs游戏捕获、ReShade
+        // "VK_LOADER_LAYERS_ENABLE" "*reshade*,*obs*"  // 白名单，优先级比黑名单高
+        // 尚不清楚具体的原因，但确实能解决问题...
+
+        // "DISABLE_VK_LAYER_reshade_1" "1" // 完全禁用vulkan模式下的ReShade
+    }
+
+    // 自定义指令，通过l4n_custom_command_menu打开
+    "custom_commands" {
+        "渲染第一人称实体" { "cvar" "r_drawviewmodel" }
+        "停止导演系统" { "cmd" "sv_cheats 1;director_stop" }
+        "HUD网络状态" {
+            "cvar" "net_graph"
+            "delta" "1"
+            "min" "0"
+            "max" "3"
+        }
+        "启用作弊(无视大厅建图限制)" { "cmd" "l4n_allow_lobby_cheats 1;sv_cheats 1" }
+        "禁用枪口抖动" { "cmd" "l4n_cvar z_gun_vertical_punch 0" }
+        "哥哥我摔倒了" { "cmd" "l4n_allow_lobby_cheats 1;sv_cheats 1;ent_fire !self sethealth 0" }
+        "实体外描边" { "cvar" "sv_glowenable" }
+        "渲染实体" { "cvar" "r_drawentities" }
+        "渲染静态道具" { "cvar" "r_drawstaticprops" }
+        "渲染贴花" { "cvar" "r_drawdecals" }
+        // 一些比较有意思的convar和concmd
+        // r_cleardecals
+        // r_decals 2
+        // vm_debug 1
+    }
+
+    // 游戏设置-按键绑定的自定义项目
+    "key_bind_acts" {
+        "自定义命令菜单" "l4n_custom_command_menu"
+        "准星处放置动态光源(双击删除)" "l4n_placelight" 
+        "l4n菜单" "l4n_menu"
+        "触发武器伸手动画(随机)" "+l4n_lookat"
+        "触发武器伸手动画(物品)" "+l4n_lookat itempickup"
+        "触发武器伸手动画(援助)" "+l4n_lookat helpinghand"
+        "大型计分板(双击显示原板)" "+l4n_player_list"
+        "原版计分板(双击显示大型计分板)" "+l4n_player_list 1"
+        "HUD显示或隐藏" "toggle l4n_game_hud_visible"
+        "切换第三人称"  "thirdpersonshoulder"
+    }
+
+    // 是否禁用引擎内置的浏览器内核，可以省下100mb左右的内存占用
+    // 会导致一些服务器的欢迎页面不显示
+    "disable_chromehtml" "0" 
+
+    // 用于避免Too many indices for index buffer弹窗
+    // 可调成2进图测试效果，非默认值(32768)可能会导致场景偶尔炸面花屏，这是不得不承担的代价
+    // 如果打了类似的补丁就保留默认值即可
+    "index_buffer_size" "32768" // 炸面貌似和数值大小有关，可以尝试用32768的倍数: 65535 131072
+
+    // 很罕见的有关vertex buffer弹窗，除非万不得已，大于默认值(32768)会导致炸面花屏
+    "vertex_buffer_size" "32768" // 推荐值65535
+
+    "font" // 字体配置
+    {
+        "anti_aliasing" "1"
+        //"min_tall" "20" // 字体的最小尺寸，防止游戏内的一些文字过小
+        "replace" // 字体替换列表
+        {
+            // 写法："要被替代的字体" "替代字体"
+            // 将Tahoma替换为微软雅黑的例子, 简体中文的默认字体是Tahoma
+            // "Tahoma" "微软雅黑"
+
+            // 有的hud mod会将默认字体修改成别的，解包hud mod获取它所用的字体名以实现替换
+            // "HUD使用的字体名" "微软雅黑"
+
+            // english的默认字体是契合L4D系列破损风格的Stubble bold 
+            // "Stubble bold" "微软雅黑"
+        }
+    }
+
+    // !!! steam页面属性里的启动选项也是可以照常生效的，除非你的游戏不是通过steam启动的
+    // !!! 如果禁用了l4n，本文件里添加的启动项将失效
+    // !!! -hide_neko启动项添加在这里是不会生效的
+    "launch_options"
+    {
+        // 额外添加启动项的语法：
+        // "-novid"要写成: "-novid" ""
+        // "+mat_phong 1"要写成: "+mat_phong" "1"
+        // "-novid" "" // 关掉游戏启动的阀门动画和美味的巧克力直升机
+
+        // "-lv" "" // 低血腥模式，顾名思义。游戏将不生成黏在身上的血迹贴花效果(类似喷漆，不要和血液喷溅的粒子效果搞混了，贴花在mod后的角色模型身上容易导致闪退，如hunter和witch的攻击导致闪退)
+
+        // 禁止在模型上生成贴花
+        // +l4n_cvar "r_drawmodeldecals 0"
+
+        // "-condebug" ""       //将控制台的内容完整输出到left4dead2/console.log
+        // "-conclearlog" ""    //启动游戏时清除console.log里的内容，这个启动项有bug不会生效，使用l4n时会修复这个问题
+
+        // 以下是l4n相关启动项
+            // "-hide_addons" ""            // 禁止引擎读取addons目录下的文件
+            // -l4n_use_neko_engine_post "" // 添加后l4n将接管引擎的后处理渲染
+            // "-no_l4n_gui" ""
+            // "-no_l4n_vgui" ""
+            // "-mat_utf8" ""
+
+            // 以下启动项不能在config.vdf文件添加，请在steam游戏属性里设置或者其它方式：bat、快捷方式
+            // -hide_neko                   // 禁用l4n，成功禁用平台后本配置文件将无效
+            // -hide_nekoshaders            // 禁用l4n的着色器
+            // -l4n_no_compatibility_check  // 禁止检查游戏版本
+    }
+
+    // 是否强制绑定l4n_menu到"\"键
+    "force_bind_l4n_menu" "1"
+
+    // 强制设置datacache的上限为2048MB
+    "lock_datacache_size" "1"
+
+// ==================== 除非你知道你在干什么，否则不要修改自本行起到文件末尾的内容 ========================
+
+    // 是否使用咪内存分配器(mimalloc)替换引擎tier0内置的内存分配器，在某些情况下减少内存碎片
+    // 此功能是实验性的，它会预先承包一大块内存给游戏的内存需求做分配
+    // 如果你平时的dc占用比较高，不建议使用该功能。因为该功能目前不会替换dxvk的内存分配器，容易出现内存不足崩溃
+    "mimalloc" "0"
+
+    "wave_cache_max_kilobytes" "524288" // 512mb
+
+    "generate_addoninfo" "1"
+    
+    "survivors" {
+        "nick" {
+            // l4n_survivor_sequence_strip会对序号大于max_sequences的动画进行截断，避免扩充的动画被调用
+            "max_sequences" "923"
+        }
+        "ellis" {
+            "max_sequences" "927"
+        }
+        "rochelle" {
+            "max_sequences" "930"
+        }
+        "coach" {
+            "max_sequences" "912"
+        }
+        "bill" {
+            "max_sequences" "1013"
+        }
+        "louis" {
+            "max_sequences" "1013"
+        }
+        "francis" {
+            "max_sequences" "1016"
+        }
+        "zoey" {
+            "max_sequences" "947"
+        }
+    }
+
+    // 幸存者里每个角色所用的动画是不相同的，一共有八套人物动画
+    
+    // 大部分情况下它们的动画都和bill有所交集，但是有的动画是某个角色独有的比如某些一代二代图的开场人物动画
+
+    // bill是亚当，除了zoey，其它人的骨架其实是bill的等比例缩放，因为bill的动作是军人标准，v社在制作别的角色动画时都是用的bill的动画来打底，然后在此基础上添加一些角色个性，比如ellis的举小手枪动画，coach走路的大大咧咧
+
+    // 导入动画的机制是：存在同名的动画不会导入，否则在末尾扩充导入，可以根据名字声明来控制导入动画的顺序，不可以禁止某些名字动画的导入
+
+    // 服务端通过序号来给客户端同步动画，假如你要制作一个使用zoey动画要替替换coach的模型，假如原版coach序号6的位置是拉人，并且拉人动画和zoey的拉人动画名字不一致，这时需要把zoey的拉人动画排到6这个位置，而coach的拉人动画移动到末尾。
+    // 假如原版coach有999个动画，这会让你替换coach的模型有1000个动画，这种情况远不是个例
+
+    // 在服务端人物动画绝大部分是通过含义(Activity)来调用的，而不是通过动画名，服务端发现你的coach模型里有两条打包含义的动画，就会在这两个动画之间随机播放，单人或者自己是房主意味着自己是服务端，要是随机到coach的动画，你就会随地大小变，coach是角色里身高最高的梯队，zoey的骨架比coach小，直接播放coach骨架的动画会拉伸四肢
+
+    // 联机又是另一种情况，绝大部分的服务器是没装人物mod或动画mod的，也不该装这种mod，这种条件下你自己的coach模型第1000个动画是永远不会被播放的，因为服务端通过序号来同步动画状态给你，服务端没装mod的情况下只有999条动画
+
+    // 自己作为服务端(单人、房主)：
+    //      如果使用l4nsurvivor，因为是作用在客户端的玩家模型替换，可以避免扩充动画被调用，以防一万，此时不能装任何普通幸存者mod，以及某些动画mod，除非你能确保mod不会影响服务端的动画决策
+    //      将cvar l4n_survivor_sequence_strip设置为1，可以避免扩充的动画被调用
+    // 联机进入别人的服务器：
+    //      如果你只联机玩，并且模型作者的qc里处理妥当(比如USQC模版)，那就很难遇到这种问题，或者问题不明显
+    
+}
