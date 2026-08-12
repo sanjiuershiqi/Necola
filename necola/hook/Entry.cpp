@@ -121,9 +121,26 @@ static void RunLoadBody()
 	}
 	ELog("Step 3.6: dereferencing offsets for ClientMode/GlobalVars/ParticleSystemMgr");
 	{
-		I::ClientMode = **reinterpret_cast<void***>(U::Offsets.m_dwClientMode);
-		I::GlobalVars = **reinterpret_cast<CGlobalVarsBase***>(U::Offsets.m_dwGlobalVars);
-		I::ParticleSystemMgr = **reinterpret_cast<void***>(U::Offsets.m_dwCParticleSystemMgr);
+		// Guard each dereference against null offsets — pattern scans can fail
+		// (esp. m_dwCParticleSystemMgr on L4N-modified client.dll), and a null
+		// deref would SEH-skip Steps 4-10 (incl. command registration) →
+		// "commands don't work". ParticleSystemMgr is unused by ADS-only build,
+		// so a null there is safe; ClientMode/GlobalVars are required by ADS.
+		if (U::Offsets.m_dwClientMode) {
+			I::ClientMode = **reinterpret_cast<void***>(U::Offsets.m_dwClientMode);
+		} else {
+			ELog("  WARN: m_dwClientMode is NULL — ADS will be limited");
+		}
+		if (U::Offsets.m_dwGlobalVars) {
+			I::GlobalVars = **reinterpret_cast<CGlobalVarsBase***>(U::Offsets.m_dwGlobalVars);
+		} else {
+			ELog("  WARN: m_dwGlobalVars is NULL — ADS will be limited");
+		}
+		if (U::Offsets.m_dwCParticleSystemMgr) {
+			I::ParticleSystemMgr = **reinterpret_cast<void***>(U::Offsets.m_dwCParticleSystemMgr);
+		} else {
+			ELog("  WARN: m_dwCParticleSystemMgr is NULL (pattern scan failed) — ParticleSystemMgr unavailable, unused by ADS");
+		}
 	}
 	ELog("Step 3 done");
 
