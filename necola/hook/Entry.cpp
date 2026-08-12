@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <spdlog/spdlog.h>
+#include <windows.h>
 
 #include "./Feature/SequenceModify/SequenceModify.h"
 #include "./Feature/CommandManager/CommandManager.h"
@@ -10,16 +11,69 @@
 #include "./Feature/AdsSupport/AdsSupport.h"
 #include "../sdk/utils/FeatureConfigManager.h"
 
+// ---- Local diagnostic logger (Win32, no CRT deps) ------------------------
+namespace {
+std::string EntryLogPath() {
+    char exePath[MAX_PATH] = {0};
+    GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+    std::string p(exePath);
+    size_t slash = p.find_last_of("\\/");
+    std::string dir = (slash != std::string::npos) ? p.substr(0, slash) : ".";
+    return dir + "\\L4N-Necola-ADS-diag.log";
+}
+
+void ELog(const char* msg) {
+    static std::string path = EntryLogPath();
+    HANDLE h = CreateFileA(path.c_str(), FILE_APPEND_DATA,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    SYSTEMTIME st; GetLocalTime(&st);
+    char line[2048];
+    int n = _snprintf_s(line, sizeof(line), _TRUNCATE,
+        "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %s\r\n",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
+        st.wMilliseconds, msg);
+    if (n > 0) { DWORD w = 0; WriteFile(h, line, (DWORD)n, &w, nullptr); }
+    CloseHandle(h);
+}
+} // namespace
+
+// SEH translator: convert access-violation etc. into a logged message so
+// we can see WHERE it crashes instead of a silent process termination.
+// (C++ catch(...) with /EHsc does NOT catch SEH exceptions.)
+static void RunLoadBody();  // forward
+
 void CGlobal_ModuleEntry::Load()
 {
-	// Module-readiness gating is done in dllmain.cpp (InitThreadFunc waits
-	// for client/engine/vgui2/datacache/vguimatsurface/inputsystem/filesystem).
-	// serverbrowser.dll is NOT loaded in the L4N-modified game flow, so we
-	// must not wait on it here.
+	ELog("=== CGlobal_ModuleEntry::Load entered ===");
+
+	// Wrap the entire body in SEH so an access violation logs its address
+	// instead of killing the process silently.
+	__try {
+		RunLoadBody();
+		ELog("=== CGlobal_ModuleEntry::Load body completed OK ===");
+	} __except(EXCEPTION_EXECUTE_HANDLER) {
+		char buf[256];
+		_snprintf_s(buf, sizeof(buf), _TRUNCATE,
+			"!!! SEH exception 0x%08X in ModuleEntry::Load",
+			GetExceptionCode());
+		ELog(buf);
+	}
+}
+
+static void RunLoadBody()
+{
+	ELog("Step 1: U::Offsets.Init()");
 	U::Offsets.Init();
+	ELog("Step 1 done");
+
+	ELog("Step 2: G::Vars.Load()");
 	G::Vars.Load();
+	ELog("Step 2 done");
 
 	// Engine interface acquisition
+	ELog("Step 3: CreateInterface calls");
 	{
 		I::BaseClient       = U::Interface.Get<IBaseClientDLL*>("client.dll", "VClient016");
 		I::ClientEntityList = U::Interface.Get<IClientEntityList*>("client.dll", "VClientEntityList003");
@@ -40,21 +94,52 @@ void CGlobal_ModuleEntry::Load()
 		I::VGuiSurface      = U::Interface.Get<IVGuiSurface*>("vgui2.dll", "VGUI_Surface031");
 		I::MatSystemSurface = U::Interface.Get<IMatSystemSurface*>("vguimatsurface.dll", "VGUI_Surface031");
 		I::InputSystem		= U::Interface.Get<IInputSystem*>("inputsystem.dll", "InputSystemVersion001");
-		{
-			I::ClientMode = **reinterpret_cast<void***>(U::Offsets.m_dwClientMode);
-			I::GlobalVars = **reinterpret_cast<CGlobalVarsBase***>(U::Offsets.m_dwGlobalVars);
-			I::ParticleSystemMgr = **reinterpret_cast<void***>(U::Offsets.m_dwCParticleSystemMgr);
-		}
 	}
+	{
+		char buf[512];
+		_snprintf_s(buf, sizeof(buf), _TRUNCATE,
+			"  Interface check: BaseClient=%p ClientEntityList=%p EngineClient=%p "
+			"EngineVGui=%p VGuiPanel=%p VGuiSurface=%p MatSysSurface=%p InputSystem=%p "
+			"MDLCache=%p FileSystem=%p ModelInfo=%p GameEventMgr=%p Prediction=%p "
+			"EngineSound=%p NetStrTable=%p EngineTrace=%p",
+			(void*)I::BaseClient, (void*)I::ClientEntityList, (void*)I::EngineClient,
+			(void*)I::EngineVGui, (void*)I::VGuiPanel, (void*)I::VGuiSurface,
+			(void*)I::MatSystemSurface, (void*)I::InputSystem,
+			(void*)I::MDLCache, (void*)I::FileSystem, (void*)I::ModelInfo,
+			(void*)I::GameEventManager, (void*)I::Prediction,
+			(void*)I::EngineSound, (void*)I::NetworkStringTable, (void*)I::EngineTrace);
+		ELog(buf);
+	}
+
+	{
+		char buf[256];
+		_snprintf_s(buf, sizeof(buf), _TRUNCATE,
+			"Step 3.5: Offsets check: m_dwClientMode=%p m_dwGlobalVars=%p m_dwCParticleSystemMgr=%p",
+			(void*)U::Offsets.m_dwClientMode, (void*)U::Offsets.m_dwGlobalVars,
+			(void*)U::Offsets.m_dwCParticleSystemMgr);
+		ELog(buf);
+	}
+	ELog("Step 3.6: dereferencing offsets for ClientMode/GlobalVars/ParticleSystemMgr");
+	{
+		I::ClientMode = **reinterpret_cast<void***>(U::Offsets.m_dwClientMode);
+		I::GlobalVars = **reinterpret_cast<CGlobalVarsBase***>(U::Offsets.m_dwGlobalVars);
+		I::ParticleSystemMgr = **reinterpret_cast<void***>(U::Offsets.m_dwCParticleSystemMgr);
+	}
+	ELog("Step 3 done");
 
 	{
 		srand(time(NULL));
 	}
-
+	ELog("Step 4: G::InputManagerI.Init()");
 	G::InputManagerI.Init();
+	ELog("Step 4 done");
+
+	ELog("Step 5: G::Hooks.Init()");
 	G::Hooks.Init();
+	ELog("Step 5 done");
 
 	// Load persistent ADS/SequenceModify configuration
+	ELog("Step 6: LoadConfig / AdsMgr.LoadConfig");
 	{
 		nlohmann::json doc = NecolaConfig::LoadConfig();
 		F::AdsMgr.LoadConfig(doc);
@@ -64,23 +149,31 @@ void CGlobal_ModuleEntry::Load()
 			G::Vars.ignoreShotgunSequence = doc["SequenceModify"].value("IgnoreShotgunSequence", false);
 		}
 	}
+	ELog("Step 6 done");
 
 	// Install sequence property hooks (required by ADS layer sequence restoration)
+	ELog("Step 7: F::SModify.RecvPropDataHook()");
 	{
 		F::SModify.RecvPropDataHook();
 	}
+	ELog("Step 7 done");
 
 	// Initialize ADS subsystem
+	ELog("Step 8: AdsMgr.Init (if enabled)");
 	if (G::Vars.enableAdsSupport) {
 		F::AdsMgr.Init();
 	}
+	ELog("Step 8 done");
 
+	ELog("Step 9: MenuMgr init");
 	{
 		F::MenuMgr.InitMenuFonts();
 		F::MenuMgr.InitConfigSwitches();
 	}
+	ELog("Step 9 done");
 
 	// Register console commands
+	ELog("Step 10: register commands");
 	{
 		F::CmdMgr.RegistCommand("necola_menu", F::MenuMgr.ToggleNecolaMenu, "toggle necola menu");
 		F::CmdMgr.RegistCommand("necola_ads", [](int*) {
@@ -104,11 +197,14 @@ void CGlobal_ModuleEntry::Load()
 			}
 		}, "go back to previous ADS state");
 	}
-
+	ELog("Step 10 done");
 }
 
 void CGlobal_ModuleEntry::undo()
 {
+	ELog("undo: G::Hooks.undo()");
 	G::Hooks.undo();
+	ELog("undo: G::InputManagerI.undo()");
 	G::InputManagerI.undo();
+	ELog("undo done");
 }
