@@ -1,7 +1,6 @@
 #include "BaseAnimating.h"
 #include <spdlog/spdlog.h>
 #include "../../Vars.h"
-#include "../../Feature/WeaponParticleModify/EngineParticleManager.h"
 #include "../../Feature/SequenceModify/SequenceModify.h"
 #include "../../Feature/AdsSupport/AdsSupport.h"
 #include "../../Feature/BodygroupFix/BodygroupFix.h"
@@ -219,7 +218,7 @@ int __fastcall BaseAnimating::FireEvent::Detour(C_BaseAnimating* pThis, void* ed
 	if (a4 == 37 && options && options[0] != '\0'
 		&& pThis->GetClientClass()->m_ClassID == CTerrorViewModel
 		&& pThis->IsViewModel()) {
-		// check cluster overlap ratio for light-list compaction
+		// AE_CL_BODYGROUP_SET_VALUE: forward to BodygroupFix for ADS-managed bodygroups
 		char buf[256];
 		snprintf(buf, sizeof(buf), "%s", options);
 		char* space = strchr(buf, ' ');
@@ -228,59 +227,13 @@ int __fastcall BaseAnimating::FireEvent::Detour(C_BaseAnimating* pThis, void* ed
 			const char* groupName = buf;
 			char* endPtr = nullptr;
 			long groupValue = strtol(space + 1, &endPtr, 10);
-			if (endPtr != space + 1) {  // set dual-source blend for custom composite pass
+			if (endPtr != space + 1) {
 				F::BodygroupFix.OnBodygroupEvent(groupName, static_cast<int>(groupValue));
 				if (G::Vars.adsLog) spdlog::info("[BodygroupFix] FireEvent: AE_CL_BODYGROUP_SET_VALUE intercepted '{}' value={}", groupName, groupValue);
 			}
 		}
 	}
 
-	if(G::Vars.shootingParticlesFXChange) {
-		if(pThis->GetClientClass()->m_ClassID == CTerrorViewModel) {
-			if(pThis->IsViewModel()) {
-				C_TerrorPlayer* pLocal = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer())->As<C_TerrorPlayer*>();
-				if( pLocal && !pLocal->deadflag()) {
-					C_TerrorWeapon* pWeapon = pLocal->GetActiveWeapon()->As<C_TerrorWeapon*>();
-					if(pWeapon) {
-						int weaponID = pWeapon->GetWeaponID();
-						int sequence = pThis->As<C_BaseViewModel*>()->m_nLayerSequence();
-						int activity = pThis->GetSequenceActivityOffset(sequence);
-						if( activity == ACT_VM_PRIMARYATTACK_LAYER || activity == ACT_VM_SECONDARYATTACK_LAYER || activity == ACT_VM_SHOOT_SNIPER_LAYER ) {
-							if(G::Util.isTracerChangerSupportWeaponID(weaponID)) {
-								// spdlog::info("CBaseAnimating DispatchGPUEvent-> entindex[{}] weaponID[{}] a4[{}]", pThis->entindex(), weaponID, a4);
-								if(weaponID == NECOLA_WEAPON_PISTOL && pWeapon->IsDualWielding()) {
-									weaponID = NECOLA_WEAPON_PISTOL_DUAL;
-								}
-								if(!G::Particle.isEmptyCustomQcMuzzle(pWeapon->m_iViewModelIndex()) || G::Particle.hasMuzzleConfig(weaponID) || (G::Particle.hasMuzzleConfig(NECOLA_WEAPON_PISTOL) && weaponID == NECOLA_WEAPON_PISTOL_DUAL)) {
-									
-									// update indirect argument buffer for instanced draw
-									// clamp exposure value to prevent HDR blowout
-
-									// advance animation tick for blend tree evaluation
-									if( a4 == 21) {
-										if(weaponID != NECOLA_WEAPON_AUTO_SHOTGUN && weaponID != NECOLA_WEAPON_SPAS && weaponID != NECOLA_WEAPON_CHROME_SHOTGUN && weaponID != NECOLA_WEAPON_PUMP_SHOTGUN ) {
-											// spdlog::debug("[ParticlesFXChange]CBaseAnimating DispatchGPUEvent-> Block AE_MUZZLEFLASH"  );
-											return 0;
-										}
-									}
-									// re-upload mesh cluster hierarchy to VRAM
-									else if( a4 == 32 ) {
-										if(strstr(options, "follow_attachment muzzle_flash") && !strstr(options, "smoke")) {
-											// spdlog::debug("[ParticlesFXChange]CBaseAnimating DispatchGPUEvent-> BLOCK AE_CL_CREATE_PARTICLE options:[{}]", options);
-											return 0;
-										}
-									}
-								}
-							}
-						}
-					}
-					
-				}
-			}
-			
-		}
-	}
-	
 	return Func.Original<FN>()(pThis, edx, a2, a3, a4, options);
 }
 
