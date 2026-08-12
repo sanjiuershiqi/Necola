@@ -12,10 +12,10 @@
 
 void CGlobal_ModuleEntry::Load()
 {
-
-	while (!GetModuleHandleA("serverbrowser.dll")){
-		std::this_thread::sleep_for(std::chrono::seconds(1));
-	}
+	// Module-readiness gating is done in dllmain.cpp (InitThreadFunc waits
+	// for client/engine/vgui2/datacache/vguimatsurface/inputsystem/filesystem).
+	// serverbrowser.dll is NOT loaded in the L4N-modified game flow, so we
+	// must not wait on it here.
 	U::Offsets.Init();
 	G::Vars.Load();
 
