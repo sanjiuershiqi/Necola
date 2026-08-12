@@ -12,6 +12,9 @@
 #include <fstream>
 #include <algorithm>
 #include <string_view>
+#include <mutex>
+#include <chrono>
+#include <thread>
 #include <MinHook.h>
 #include <inipp.h>
 
@@ -60,12 +63,12 @@ DWORD __stdcall Hook_necola(LPVOID lpParam)
     if (!hProcess) return 1;
     LoadIni();
     Logging();
-    std::wstring cmdline = cfg::System::cmdLine;
-    if(cmdline.empty())
-    {
-        std::wstring cmdline = GetCommandLineW();
-    }
 
+    // Get startup commandline (for logging only)
+    std::wstring cmdline = cfg::System::cmdLine;
+    if (cmdline.empty()) {
+        cmdline = GetCommandLineW() ? GetCommandLineW() : L"";
+    }
     spdlog::info(L"Startup commandline: {}", cmdline.c_str());
     spdlog::info("Necola Start! (loaded as L4N plugin)");
     G::ModuleEntry.Load();
@@ -85,26 +88,71 @@ void Undo_necola()
 // L4N only acts as the loader (scans neko/plugins/*.dll, LoadLibraryExA,
 // GetProcAddress("GetL4NPluginInstance")). The core ADS logic is fully
 // autonomous: own Source CreateInterface acquisition + own MinHook installs.
-// This removes the previous Detours-based injector (left4dead2_necola.exe).
+//
+// Init strategy: spawn the init thread from the FIRST L4N callback we get
+// (OnModuleLoaded for any module, or OnGameLaunch as a fallback). The init
+// thread itself waits until all required Source engine modules are present
+// (client.dll + engine.dll + vgui2.dll + datacache.dll + vguimatsurface.dll),
+// so the exact L4N callback timing does not matter — we self-gate.
 class NecolaL4NPlugin : public IL4NPlugin {
 public:
     unsigned int GetInterfaceVersion() override { return 1; }
     const char* GetName() override { return "Necola-ADS"; }
     const char* GetVersion() override { return sFixVer.c_str(); }
 
-    // client.dll is the last major game module to load before the client is
-    // ready. Spawn the init thread here; it still waits for serverbrowser.dll
-    // (loaded late, during main menu) as the final readiness gate before
-    // acquiring Source interfaces and installing hooks.
     void OnModuleLoaded(const char* module_name, std::uintptr_t handle) override {
-        if (std::string_view(module_name) == "client") {
-            if (auto h = CreateThread(NULL, 0, Hook_necola, nullptr, 0, NULL)) {
+        // Kick off the init thread exactly once. Use a local static flag so
+        // repeated callbacks from L4N do not spawn duplicate threads.
+        static std::once_flag once;
+        std::call_once(once, [this]() {
+            if (auto h = CreateThread(NULL, 0, &NecolaL4NPlugin::InitThreadFunc, nullptr, 0, NULL)) {
                 CloseHandle(h);
             }
-        }
+        });
     }
 
-    void OnGameLaunch() override {}
+    void OnGameLaunch() override {
+        // Fallback in case OnModuleLoaded was never fired (defensive).
+        static std::once_flag once;
+        std::call_once(once, [this]() {
+            if (auto h = CreateThread(NULL, 0, &NecolaL4NPlugin::InitThreadFunc, nullptr, 0, NULL)) {
+                CloseHandle(h);
+            }
+        });
+    }
+
+    // Wait until every Source module we CreateInterface against is loaded,
+    // then run the original Hook_necola init. We cannot rely on
+    // serverbrowser.dll in the L4N-modified game flow, so we gate on the
+    // actual modules we need.
+    static DWORD __stdcall InitThreadFunc(LPVOID) {
+        const char* required[] = {
+            "client.dll",
+            "engine.dll",
+            "vgui2.dll",
+            "datacache.dll",
+            "vguimatsurface.dll",
+            "inputsystem.dll",
+            "filesystem_stdio.dll",
+        };
+        constexpr int kRequiredCount = sizeof(required) / sizeof(required[0]);
+
+        // Wait up to ~120s for all modules. Each module gates an interface
+        // we acquire in Entry.cpp; missing any of them crashes CreateInterface.
+        for (int waited = 0; waited < 120; ++waited) {
+            bool all = true;
+            for (int i = 0; i < kRequiredCount; ++i) {
+                if (!GetModuleHandleA(required[i])) { all = false; break; }
+            }
+            if (all) break;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+
+        return Hook_necola(nullptr);
+    }
+
+    void OnD3DCreated(void* d3d) override {}
+    void OnD3DDeviceCreated(void* d3d_device, bool is_dxvk) override {}
 };
 
 
