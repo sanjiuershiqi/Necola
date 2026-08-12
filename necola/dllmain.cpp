@@ -23,132 +23,194 @@
 #include "vars.h"
 
 
+// ---- Diagnostic logging helpers -------------------------------------------
+// We use a dedicated logger that writes to an absolute path so the log is
+// always findable, regardless of the working directory L4N chooses.
+namespace {
+
+// Absolute log path: <game root>\L4N-Necola-ADS-diag.log
+// Game root = directory of the host process exe (left4dead2.exe).
+std::string ResolveLogPath() {
+    char exePath[MAX_PATH] = {0};
+    GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+    std::string p(exePath);
+    size_t slash = p.find_last_of("\\/");
+    std::string dir = (slash != std::string::npos) ? p.substr(0, slash) : ".";
+    return dir + "\\L4N-Necola-ADS-diag.log";
+}
+
+// Trivially safe log that works even before spdlog is up: appends to a file
+// using Win32 CreateFile (no CRT state, no exceptions). Flushes each line.
+void RawLog(const char* msg) {
+    static std::string path = ResolveLogPath();
+    HANDLE h = CreateFileA(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    char line[2048];
+    int n = _snprintf_s(line, sizeof(line), _TRUNCATE,
+        "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %s\r\n",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
+        st.wMilliseconds, msg);
+    if (n > 0) {
+        DWORD written = 0;
+        WriteFile(h, line, (DWORD)n, &written, nullptr);
+    }
+    CloseHandle(h);
+}
+
 void InitConsole() {
+    static bool done = false;
+    if (done) return;
+    done = true;
     AllocConsole();
-    FILE *dummy;
+    FILE *dummy = nullptr;
     freopen_s(&dummy, "CONOUT$", "w", stdout);
+    freopen_s(&dummy, "CONOUT$", "w", stderr);
 }
 
-void Logging() {
-    if (cfg::System::debug) {
-        InitConsole();
-    }
-
-    // spdlog initialisation
+void InitSpdlog() {
     try {
-        auto logger = spdlog::basic_logger_mt(sFixName, sLogFile, false);
+        auto logger = spdlog::basic_logger_mt("diag", ResolveLogPath(), false);
         spdlog::set_default_logger(logger);
-
-        auto start_time = std::chrono::system_clock::now();
-
-        if (cfg::System::debug) {
-            spdlog::set_level(spdlog::level::debug);
-        }
-        spdlog::flush_on(spdlog::level::debug);
-        spdlog::info("----------");
-        spdlog::info("Date: {}", std::chrono::system_clock::to_time_t(start_time));
-        spdlog::info("{} v{} loaded (L4N plugin mode).", sFixName.c_str(), sFixVer.c_str());
-        spdlog::info("----------");
-
-
-    } catch (const spdlog::spdlog_ex &ex) {
-        InitConsole();
+        spdlog::set_level(spdlog::level::trace);
+        spdlog::flush_on(spdlog::level::trace);
+    } catch (const spdlog::spdlog_ex&) {
+        // spdlog failed — RawLog still works, console stays up.
     }
 }
 
+} // namespace
+
+
+// ---- Original init pipeline ------------------------------------------------
+static void LoadIniSafe() {
+    try { LoadIni(); }
+    catch (...) { RawLog("LoadIni threw exception"); }
+}
 
 DWORD __stdcall Hook_necola(LPVOID lpParam)
 {
-    HANDLE hProcess = OpenProcess(SYNCHRONIZE, FALSE, GetCurrentProcessId());
-    if (!hProcess) return 1;
-    LoadIni();
-    Logging();
+    RawLog("Hook_necola thread started");
+    InitConsole();
+    InitSpdlog();
 
-    // Get startup commandline (for logging only)
+    HANDLE hProcess = OpenProcess(SYNCHRONIZE, FALSE, GetCurrentProcessId());
+    if (!hProcess) { RawLog("OpenProcess(SYNCHRONIZE) failed — continuing anyway"); }
+    RawLog("calling LoadIni");
+    LoadIniSafe();
+    RawLog("LoadIni done");
+
     std::wstring cmdline = cfg::System::cmdLine;
     if (cmdline.empty()) {
         cmdline = GetCommandLineW() ? GetCommandLineW() : L"";
     }
-    spdlog::info(L"Startup commandline: {}", cmdline.c_str());
-    spdlog::info("Necola Start! (loaded as L4N plugin)");
-    G::ModuleEntry.Load();
+    {
+        char buf[2048];
+        WideCharToMultiByte(CP_UTF8, 0, cmdline.c_str(), -1, buf, sizeof(buf), nullptr, nullptr);
+        std::string m = "cmdline: " + std::string(buf);
+        RawLog(m.c_str());
+    }
+    RawLog("calling CGlobal_ModuleEntry::Load");
+    try {
+        G::ModuleEntry.Load();
+        RawLog("CGlobal_ModuleEntry::Load returned OK");
+    } catch (...) {
+        RawLog("!!! CGlobal_ModuleEntry::Load threw exception");
+    }
 
-    CloseHandle(hProcess);
+    if (hProcess) CloseHandle(hProcess);
+    RawLog("Hook_necola thread exit");
     return 0;
 }
 
 void Undo_necola()
 {
-    spdlog::info("Stop Necola (L4N plugin unload)");
-    G::ModuleEntry.undo();
+    RawLog("Undo_necola (DLL detach)");
+    try { G::ModuleEntry.undo(); }
+    catch (...) { RawLog("ModuleEntry.undo threw"); }
 }
 
 
-// L4N plugin instance — bypass plugin.
-// L4N only acts as the loader (scans neko/plugins/*.dll, LoadLibraryExA,
-// GetProcAddress("GetL4NPluginInstance")). The core ADS logic is fully
-// autonomous: own Source CreateInterface acquisition + own MinHook installs.
-//
-// Init strategy: spawn the init thread from the FIRST L4N callback we get
-// (OnModuleLoaded for any module, or OnGameLaunch as a fallback). The init
-// thread itself waits until all required Source engine modules are present
-// (client.dll + engine.dll + vgui2.dll + datacache.dll + vguimatsurface.dll),
-// so the exact L4N callback timing does not matter — we self-gate.
+// ---- L4N plugin instance ---------------------------------------------------
+// Bypass plugin: L4N only loads us; core ADS logic is autonomous (own
+// CreateInterface + MinHook). We kick off the init thread from the first
+// L4N callback and self-gate on Source module readiness inside the thread.
 class NecolaL4NPlugin : public IL4NPlugin {
 public:
-    unsigned int GetInterfaceVersion() override { return 1; }
+    unsigned int GetInterfaceVersion() override {
+        RawLog("GetInterfaceVersion() called -> 1");
+        return 1;
+    }
     const char* GetName() override { return "Necola-ADS"; }
     const char* GetVersion() override { return sFixVer.c_str(); }
 
     void OnModuleLoaded(const char* module_name, std::uintptr_t handle) override {
-        // Kick off the init thread exactly once. Use a local static flag so
-        // repeated callbacks from L4N do not spawn duplicate threads.
+        char buf[256];
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+            "OnModuleLoaded(\"%s\", 0x%p)", module_name ? module_name : "(null)", (void*)handle);
+        RawLog(buf);
+
         static std::once_flag once;
         std::call_once(once, [this]() {
+            RawLog("spawning InitThreadFunc");
             if (auto h = CreateThread(NULL, 0, &NecolaL4NPlugin::InitThreadFunc, nullptr, 0, NULL)) {
                 CloseHandle(h);
+            } else {
+                RawLog("CreateThread(InitThreadFunc) FAILED");
             }
         });
     }
 
     void OnGameLaunch() override {
-        // Fallback in case OnModuleLoaded was never fired (defensive).
+        RawLog("OnGameLaunch() called");
         static std::once_flag once;
         std::call_once(once, [this]() {
+            RawLog("spawning InitThreadFunc (from OnGameLaunch)");
             if (auto h = CreateThread(NULL, 0, &NecolaL4NPlugin::InitThreadFunc, nullptr, 0, NULL)) {
                 CloseHandle(h);
+            } else {
+                RawLog("CreateThread(InitThreadFunc) FAILED");
             }
         });
     }
 
-    // Wait until every Source module we CreateInterface against is loaded,
-    // then run the original Hook_necola init. We cannot rely on
-    // serverbrowser.dll in the L4N-modified game flow, so we gate on the
-    // actual modules we need.
     static DWORD __stdcall InitThreadFunc(LPVOID) {
+        RawLog("InitThreadFunc entered");
         const char* required[] = {
-            "client.dll",
-            "engine.dll",
-            "vgui2.dll",
-            "datacache.dll",
-            "vguimatsurface.dll",
-            "inputsystem.dll",
-            "filesystem_stdio.dll",
+            "client.dll", "engine.dll", "vgui2.dll", "datacache.dll",
+            "vguimatsurface.dll", "inputsystem.dll", "filesystem_stdio.dll",
         };
-        constexpr int kRequiredCount = sizeof(required) / sizeof(required[0]);
+        constexpr int kN = sizeof(required) / sizeof(required[0]);
 
-        // Wait up to ~120s for all modules. Each module gates an interface
-        // we acquire in Entry.cpp; missing any of them crashes CreateInterface.
         for (int waited = 0; waited < 120; ++waited) {
             bool all = true;
-            for (int i = 0; i < kRequiredCount; ++i) {
-                if (!GetModuleHandleA(required[i])) { all = false; break; }
+            char missing[256] = {0};
+            int off = 0;
+            for (int i = 0; i < kN; ++i) {
+                if (!GetModuleHandleA(required[i])) {
+                    all = false;
+                    off += _snprintf_s(missing + off, sizeof(missing) - off, _TRUNCATE,
+                        "%s%s", (off ? "," : ""), required[i]);
+                    if (off >= (int)sizeof(missing) - 8) break;
+                }
             }
-            if (all) break;
+            if (all) {
+                RawLog("all required modules present");
+                break;
+            }
+            if (waited % 10 == 0) {
+                char m[300];
+                _snprintf_s(m, sizeof(m), _TRUNCATE, "waiting (%ds) missing: %s", waited, missing);
+                RawLog(m);
+            }
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
-
-        return Hook_necola(nullptr);
+        RawLog("module wait done, calling Hook_necola");
+        DWORD r = Hook_necola(nullptr);
+        RawLog("Hook_necola returned");
+        return r;
     }
 
     void OnD3DCreated(void* d3d) override {}
@@ -157,17 +219,25 @@ public:
 
 
 extern "C" __declspec(dllexport) IL4NPlugin* GetL4NPluginInstance() {
+    RawLog("GetL4NPluginInstance() called");
     static NecolaL4NPlugin instance;
+    RawLog("GetL4NPluginInstance() returning instance");
     return &instance;
 }
 
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
-        case DLL_PROCESS_ATTACH:
+        case DLL_PROCESS_ATTACH: {
             DisableThreadLibraryCalls(hModule);
+            char msg[128];
+            _snprintf_s(msg, sizeof(msg), _TRUNCATE,
+                "DllMain(DLL_PROCESS_ATTACH), hModule=0x%p", (void*)hModule);
+            RawLog(msg);
             break;
+        }
         case DLL_PROCESS_DETACH:
+            RawLog("DllMain(DLL_PROCESS_DETACH)");
             Undo_necola();
             break;
     }
