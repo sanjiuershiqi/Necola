@@ -13,7 +13,7 @@
 // Version — L4N (Left 4 Neko) plugin build
 std::string sFixName = "L4N-Necola-ADS";
 std::string sLogFile = sFixName + ".log";
-std::string sFixVer = "1.4.0_l4n_plugin";
+std::string sFixVer = "1.4.0";
 
 // Logger
 std::shared_ptr<spdlog::logger> logger;

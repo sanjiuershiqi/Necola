@@ -19,27 +19,29 @@ using json = nlohmann::json;
 const int MENU_WIDTH = 480;
 const int MENU_HEIGHT = 340;
 const int LINE_HEIGHT = 30;
-const int TOTAL_LINES = 11;
 const int TITLE_LINE = 0;
 const int OPTION_START_LINE = 1;
 const int OPTION_END_LINE = 7;
-const int NAV_START_LINE = 8;
+const int NAV_LINE = 9;
 const int MAX_OPTIONS_PER_PAGE = 7;
 
-const Color C_COLOR_BACKGROUND = {30, 30, 30, 230};
-const Color C_COLOR_BORDER = {200, 200, 200, 150};
-const Color C_COLOR_TEXT = {255, 255, 255, 255};
-const Color C_COLOR_TEXT_DISABLED = {150, 150, 150, 200};
-const Color C_COLOR_SWITCH_ON = {50, 255, 50, 255};
-const Color C_COLOR_SWITCH_OFF = {255, 50, 50, 255};
-const Color C_COLOR_SUBMENU = {100, 200, 255, 255};
-const Color C_COLOR_NAV_ENABLED = {200, 200, 100, 255};
+// Palette: dark slate panel with a soft blue accent, switch states read via a
+// right-aligned status column instead of full-row red/green recolors.
+const Color C_COLOR_BACKGROUND = {18, 22, 28, 235};
+const Color C_COLOR_BORDER = {90, 160, 220, 200};
+const Color C_COLOR_TITLE_BG = {38, 60, 88, 235};
+const Color C_COLOR_NAV_BG = {28, 40, 58, 235};
+const Color C_COLOR_TEXT = {232, 236, 240, 255};
+const Color C_COLOR_TEXT_DIM = {150, 158, 168, 220};
+const Color C_COLOR_SWITCH_ON = {120, 220, 130, 255};
+const Color C_COLOR_SWITCH_OFF = {150, 158, 168, 255};
+const Color C_COLOR_SUBMENU = {120, 190, 255, 255};
+const Color C_COLOR_NAV = {190, 200, 210, 230};
 const Color C_COLOR_NAV_DISABLED = {100, 100, 100, 150};
-const Color C_COLOR_RETURN = {255, 150, 150, 255};
-const Color C_COLOR_LINE = {100, 100, 100, 200};
-const Color C_COLOR_LINE_NAV = {80, 80, 80, 200};
-const Color C_COLOR_FLASH_YELLOW = {255, 255, 0, 255};
-const Color C_COLOR_FLASH_GREEN = {0, 255, 0, 255};
+const Color C_COLOR_LINE = {70, 82, 96, 220};
+const Color C_COLOR_FLASH_YELLOW = {255, 235, 130, 255};
+const Color C_COLOR_FLASH_GREEN = {140, 235, 150, 255};
+const Color C_COLOR_ACCENT = {90, 160, 220, 255};
 
 
 enum MenuItemType {
@@ -739,8 +741,16 @@ public:
 	}
 
 	void DrawBackground() {
+		// Panel + accent frame
 		EngineDrawFilledRect(menuX, menuY, menuX + MENU_WIDTH, menuY + MENU_HEIGHT, C_COLOR_BACKGROUND);
 		EngineDrawOutlinedRect(menuX, menuY, menuX + MENU_WIDTH, menuY + MENU_HEIGHT, C_COLOR_BORDER);
+		// Title strip
+		EngineDrawFilledRect(menuX + 1, menuY + 1, menuX + MENU_WIDTH - 1, menuY + LINE_HEIGHT - 1, C_COLOR_TITLE_BG);
+		// Footer strip (single nav line) + separating rule
+		EngineDrawFilledRect(menuX + 1, menuY + NAV_LINE * LINE_HEIGHT - 4,
+			menuX + MENU_WIDTH - 1, menuY + MENU_HEIGHT - 1, C_COLOR_NAV_BG);
+		EngineDrawLine(menuX + 10, menuY + NAV_LINE * LINE_HEIGHT - 4,
+			menuX + MENU_WIDTH - 10, menuY + NAV_LINE * LINE_HEIGHT - 4, C_COLOR_LINE);
 	}
 
 
@@ -753,9 +763,11 @@ public:
 				title = tempStack.top()->getTitle() + " > " + title;
 			}
 		}
-		EngineDrawText(title.c_str(), menuX + 10, menuY + TITLE_LINE * LINE_HEIGHT + 5, C_COLOR_TEXT );
+		EngineDrawText(title.c_str(), menuX + 12, menuY + TITLE_LINE * LINE_HEIGHT + 5, C_COLOR_TEXT);
 
-		EngineDrawLine(menuX + 10, menuY + LINE_HEIGHT - 2,  menuX + MENU_WIDTH - 10, menuY + LINE_HEIGHT - 2, C_COLOR_TEXT);
+		// Page indicator in the title bar, right side
+		std::string pageText = std::to_string(currentPage + 1) + "/" + std::to_string(totalPages);
+		EngineDrawText(pageText.c_str(), menuX + MENU_WIDTH - 58, menuY + TITLE_LINE * LINE_HEIGHT + 5, C_COLOR_ACCENT);
 	}
 
 	void DrawOptionLines(const std::vector<MenuItem>& pageItems) {
@@ -771,56 +783,43 @@ public:
 		for (size_t i = 0; i < itemsToShow; i++) {
 			int lineIndex = OPTION_START_LINE + i;
 			int actualIndex = currentPage * MAX_OPTIONS_PER_PAGE + i;
-			DrawMenuItem(menuX+12 , menuY + lineIndex * LINE_HEIGHT + 5 , pageItems[i], (int)i + 1, actualIndex);
+			DrawMenuItem(menuX + 12, menuY + lineIndex * LINE_HEIGHT + 5, pageItems[i], (int)i + 1, actualIndex);
 		}
 	}
 
 	void DrawMenuItem(int x, int y, const MenuItem& item, int index, int actualIndex) {
+		std::string itemText = "[" + std::to_string(index) + "] " + item.name;
+
+		Color textColor = C_COLOR_TEXT;
+		if (flashingItemIndex == actualIndex && item.type == ITEM_NORMAL) {
+			textColor = flashYellow ? C_COLOR_FLASH_YELLOW : C_COLOR_FLASH_GREEN;
+		} else if (item.type == ITEM_SUBMENU) {
+			textColor = C_COLOR_SUBMENU;
+		}
+
+		EngineDrawText(itemText.c_str(), x, y, textColor);
+
+		// Right-aligned status column: switch state or submenu arrow
 		if (item.type == ITEM_SWITCH) {
-			std::string statusText = item.switchState ? "【开】" : "【关】";
-			std::string itemText = "[" + std::to_string(index) + "] " +  item.name + " " +  statusText;
-			if (item.switchState) {
-				EngineDrawText(itemText.c_str(), x, y, C_COLOR_SWITCH_ON );
-			} else {
-				EngineDrawText(itemText.c_str(), x, y, C_COLOR_SWITCH_OFF );
-			}
-		} else {
-			std::string itemText = "[" + std::to_string(index) + "] " +  item.name;
-			if(item.subMenu) {
-				itemText = itemText + " >";
-			}
-
-			Color textColor = C_COLOR_TEXT;
-			if (flashingItemIndex == actualIndex && item.type == ITEM_NORMAL) {
-				textColor = flashYellow ? C_COLOR_FLASH_YELLOW : C_COLOR_FLASH_GREEN;
-			}
-
-			EngineDrawText(itemText.c_str(), x, y , textColor);
+			EngineDrawText(item.switchState ? "[开]" : "[关]",
+				menuX + MENU_WIDTH - 78, y, item.switchState ? C_COLOR_SWITCH_ON : C_COLOR_SWITCH_OFF);
+		} else if (item.subMenu) {
+			EngineDrawText(">>", menuX + MENU_WIDTH - 58, y, C_COLOR_SUBMENU);
 		}
 	}
 
-	void DrawNavigationLines( int currentPage, int totalPages) {
-		int line8 = NAV_START_LINE;
-		bool canPrev = currentPage > 0 && (currentPage != totalPages);
-		if(canPrev) {
-
-			EngineDrawText("[8] 上一页", menuX  + 15, menuY + line8 * LINE_HEIGHT + 5, Color{200, 200, 100, 255});
-		}
-
-		int line9 = NAV_START_LINE + 1;
+	void DrawNavigationLines(int currentPage, int totalPages) {
+		int y = menuY + NAV_LINE * LINE_HEIGHT + 1;
+		bool canPrev = currentPage > 0;
 		bool canNext = currentPage < totalPages - 1;
-		if(canNext) {
-			EngineDrawText("[9] 下一页", menuX  + 15, menuY + line9 * LINE_HEIGHT + 5, Color{200, 200, 100, 255});
-		}
-
-		int line0 = NAV_START_LINE + 2;
 		bool isMainMenu = menuStack.size() == 1;
-		if(isMainMenu) {
-			EngineDrawText("[0] 关闭", menuX  + 15, menuY + line0 * LINE_HEIGHT + 5, Color{200, 200, 100, 255});
-		} else {
-			EngineDrawText("[0] 返回", menuX  + 15, menuY + line0 * LINE_HEIGHT + 5, Color{200, 200, 100, 255});
-		}
 
+		EngineDrawText(canPrev ? "[8] 上一页" : "      [8]",
+			menuX + 15, y, canPrev ? C_COLOR_NAV : C_COLOR_NAV_DISABLED);
+		EngineDrawText(canNext ? "[9] 下一页" : "      [9]",
+			menuX + 150, y, canNext ? C_COLOR_NAV : C_COLOR_NAV_DISABLED);
+		EngineDrawText(isMainMenu ? "[0] 关闭" : "[0] 返回",
+			menuX + 285, y, C_COLOR_NAV);
 	}
 
 	void InitMenuFonts();
