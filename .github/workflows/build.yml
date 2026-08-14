@@ -12,6 +12,9 @@ env:
   VCPKG_DEFAULT_TRIPLET: x86-windows
   VCPKG_ROOT: ${{ github.workspace }}\vcpkg
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
