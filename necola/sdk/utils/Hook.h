@@ -26,13 +26,12 @@ namespace Hook
 	class CTable
 	{
 	public:
-		inline bool Init(const void* pTable)
+		inline bool Init(const void* pTable, const unsigned int nSize)
 		{
+			if (!pTable || nSize == 0) return false;
 			m_pBase = (unsigned int**)(pTable);
-
-			while (reinterpret_cast<unsigned int*>(*m_pBase)[m_nSize])
-				m_nSize += 1u;
-
+			if (!*m_pBase) return false;
+			m_nSize = nSize;
 			m_pOriginals = std::make_unique<void* []>(m_nSize);
 
 			return (m_pBase && m_nSize);
@@ -40,7 +39,7 @@ namespace Hook
 
 		inline bool Hook(void* pDetour, const unsigned int nIndex)
 		{
-			if (m_pBase && m_nSize)
+			if (m_pBase && m_nSize && nIndex < m_nSize)
 				return (MH_CreateHook((*reinterpret_cast<void***>(m_pBase))[nIndex], pDetour, &m_pOriginals[nIndex]) == MH_STATUS::MH_OK);
 			
 			return false;

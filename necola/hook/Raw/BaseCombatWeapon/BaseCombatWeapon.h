@@ -21,6 +21,6 @@ namespace Hooks
 		}
 
 
-		void Init();
+		bool Init();
 	}
 }

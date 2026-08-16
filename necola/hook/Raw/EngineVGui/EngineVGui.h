@@ -15,7 +15,7 @@ namespace Hooks
 			void __fastcall Detour(void* ecx, void* edx, int mode);
 		}
 
-		void Init();
+		bool Init();
 
 		// Restore the user's crosshair value if we still have it forced
 		// off at unload time (called from ModuleEntry::undo).

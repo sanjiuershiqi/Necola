@@ -25,6 +25,6 @@ namespace Hooks
 
 			bool __fastcall Detour(void* ecx, void* edx,  IGameEvent *event);
 		}
-		void Init();
+		bool Init();
 	}
 }

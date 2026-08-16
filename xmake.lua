@@ -13,7 +13,7 @@ add_requires("minhook")
 add_requires("vcpkg::inipp")
 
 -- Necola-ADS as an L4N (Left 4 Neko) plugin.
--- Produces necola_ads.dll, to be placed in <left4dead2>/neko/plugins/.
+-- Produces necola_ads.dll, to be placed in <left4dead2>/bin/neko/plugins/.
 -- Loaded by L4N via GetL4NPluginInstance (see necola/l4n_plugin.h).
 local name = "necola_ads"
 target(name)

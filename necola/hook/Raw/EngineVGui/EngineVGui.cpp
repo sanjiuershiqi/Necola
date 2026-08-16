@@ -91,8 +91,8 @@ void __fastcall EngineVGui::Paint::Detour(void* ecx, void* edx, int mode)
 	}
 }
 
-void EngineVGui::Init()
+bool EngineVGui::Init()
 {
-	Table.Init(I::EngineVGui);
-	Table.Hook(&Paint::Detour, Paint::Index);
+	return Table.Init(I::EngineVGui, Paint::Index + 1)
+		&& Table.Hook(&Paint::Detour, Paint::Index);
 }

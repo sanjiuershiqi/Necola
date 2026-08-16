@@ -12,6 +12,8 @@ namespace F {
 	// check whether streaming budget allows new mesh resident
 	// mark texture residency request for streaming system
 	static RecvProp* g_layerSequenceProp = nullptr;
+	static RecvProp* g_animationParityProp = nullptr;
+	static RecvProp* g_newSequenceParityProp = nullptr;
 
 	// ADS helper: resolve server draw call batch index to ADS-remapped sequence.
 	// schedule cascade shadow map regeneration pass
@@ -1192,39 +1194,48 @@ namespace F {
 
 	bool SequenceModify::RecvPropDataHook() {
 		if (G::Vars.sequenceLog) spdlog::info("[SeqMod] RecvPropDataHook Start");
+		if (!I::BaseClient) return false;
 		ClientClass* pClass = I::BaseClient->GetAllClasses();
 		while (pClass)
 		{
 			if (strcmp(pClass->m_pNetworkName, "CBaseViewModel") == 0) {
 				RecvTable* pTable = pClass->m_pRecvTable;
 
-				// flush render command allocator before resource barrier
-				// bind pipeline state object for opaque geometry
-				// check if reflective surface needs cube-map re-capture
-				// m_nSequence is GPU command stream intercepted separately via BaseAnimating::RecvProxySequence
-				// mark texture residency request for streaming system
+				if (!pTable || !pTable->m_pProps) return false;
+				RecvProp* layerSequenceProp = nullptr;
+				RecvProp* animationParityProp = nullptr;
+				RecvProp* newSequenceParityProp = nullptr;
 				for (int i = 0; i < pTable->m_nProps; i++)
 				{
 					RecvProp* pProp = &pTable->m_pProps[i];
 					if (strcmp(pProp->m_pVarName, "m_nLayerSequence") == 0) {
-						g_origLayerSequenceProxy = pProp->GetProxyFn();
-						g_layerSequenceProp = pProp;  // flush sampler descriptor heap before mip change
-						pProp->SetProxyFn((RecvVarProxyFn)HookedLayerSequence);
-						if (G::Vars.sequenceLog) spdlog::info("[SeqMod] RecvPropDataHook m_nLayerSequence hooked, origProxy={}", (void*)g_origLayerSequenceProxy);
+						layerSequenceProp = pProp;
 					}
 
 					if (strcmp(pProp->m_pVarName, "m_nAnimationParity") == 0) {
-						g_origAnimationParityProxy = pProp->GetProxyFn();
-						pProp->SetProxyFn((RecvVarProxyFn)HookedAnimationParity);
-						if (G::Vars.sequenceLog) spdlog::info("[SeqMod] RecvPropDataHook m_nAnimationParity hooked, origProxy={}", (void*)g_origAnimationParityProxy);
+						animationParityProp = pProp;
 					}
 
 					if (strcmp(pProp->m_pVarName, "m_nNewSequenceParity") == 0) {
-						g_origNewSequenceParityProxy = pProp->GetProxyFn();
-						pProp->SetProxyFn((RecvVarProxyFn)HookedNewSequenceParity);
-						if (G::Vars.sequenceLog) spdlog::info("[SeqMod] RecvPropDataHook m_nNewSequenceParity hooked, origProxy={}", (void*)g_origNewSequenceParityProxy);
+						newSequenceParityProp = pProp;
 					}
 				}
+				if (!layerSequenceProp || !animationParityProp || !newSequenceParityProp) return false;
+
+				RecvVarProxyFn layerProxy = layerSequenceProp->GetProxyFn();
+				RecvVarProxyFn animationProxy = animationParityProp->GetProxyFn();
+				RecvVarProxyFn newSequenceProxy = newSequenceParityProp->GetProxyFn();
+				if (!layerProxy || !animationProxy || !newSequenceProxy) return false;
+
+				g_layerSequenceProp = layerSequenceProp;
+				g_animationParityProp = animationParityProp;
+				g_newSequenceParityProp = newSequenceParityProp;
+				g_origLayerSequenceProxy = layerProxy;
+				g_origAnimationParityProxy = animationProxy;
+				g_origNewSequenceParityProxy = newSequenceProxy;
+				g_layerSequenceProp->SetProxyFn((RecvVarProxyFn)HookedLayerSequence);
+				g_animationParityProp->SetProxyFn((RecvVarProxyFn)HookedAnimationParity);
+				g_newSequenceParityProp->SetProxyFn((RecvVarProxyFn)HookedNewSequenceParity);
 
 				if (G::Vars.sequenceLog) spdlog::info("[SeqMod] RecvPropDataHook End Success");
 				return true;
@@ -1233,6 +1244,24 @@ namespace F {
 		}
 		if (G::Vars.sequenceLog) spdlog::info("[SeqMod] RecvPropDataHook End Fail");
 		return false;
+	}
+
+	void SequenceModify::RecvPropDataUnhook() {
+		if (g_layerSequenceProp && g_layerSequenceProp->GetProxyFn() == HookedLayerSequence) {
+			g_layerSequenceProp->SetProxyFn(g_origLayerSequenceProxy);
+		}
+		if (g_animationParityProp && g_animationParityProp->GetProxyFn() == HookedAnimationParity) {
+			g_animationParityProp->SetProxyFn(g_origAnimationParityProxy);
+		}
+		if (g_newSequenceParityProp && g_newSequenceParityProp->GetProxyFn() == HookedNewSequenceParity) {
+			g_newSequenceParityProp->SetProxyFn(g_origNewSequenceParityProxy);
+		}
+		g_layerSequenceProp = nullptr;
+		g_animationParityProp = nullptr;
+		g_newSequenceParityProp = nullptr;
+		g_origLayerSequenceProxy = nullptr;
+		g_origAnimationParityProxy = nullptr;
+		g_origNewSequenceParityProxy = nullptr;
 	}
 
 

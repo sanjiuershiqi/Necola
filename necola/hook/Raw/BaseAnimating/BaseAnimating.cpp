@@ -270,8 +270,9 @@ int __fastcall BaseAnimating::FindTransitionSequence::Detour(C_BaseAnimating* pT
 }
 
 
-void BaseAnimating::Init()
+bool BaseAnimating::Init()
 {
+	bool ok = false;
 	{
 		using namespace SetSequence;
 		const FN pfSetSequence = reinterpret_cast<FN>(U::Offsets.m_dwSetSequence);
@@ -284,7 +285,7 @@ void BaseAnimating::Init()
 		using namespace RecvProxySequenceViewModel;
 		const FN pfRecvProxySequenceViewModel = reinterpret_cast<FN>(U::Offsets.m_dwRecvProxySequenceViewModel);
 		if( pfRecvProxySequenceViewModel ) {
-			Func.Init(pfRecvProxySequenceViewModel, &Detour);
+			ok = Func.Init(pfRecvProxySequenceViewModel, &Detour);
 		}
 	}
 
@@ -309,7 +310,7 @@ void BaseAnimating::Init()
 		using namespace SelectWeightedSequence;
 		const FN pfSelectWeightedSequence = reinterpret_cast<FN>(U::Offsets.m_dwSelectWeightedSequence);
 		if( pfSelectWeightedSequence ) {
-			Func.Init(pfSelectWeightedSequence, &Detour);
+			ok = Func.Init(pfSelectWeightedSequence, &Detour) && ok;
 		}
 	}
 
@@ -317,7 +318,7 @@ void BaseAnimating::Init()
 		using namespace FireEvent;
 		const FN pfFireEvent = reinterpret_cast<FN>(U::Offsets.m_dwFireEvent);
 		if( pfFireEvent ) {
-			Func.Init(pfFireEvent, &Detour);
+			ok = Func.Init(pfFireEvent, &Detour) && ok;
 		}
 	}
 
@@ -348,4 +349,5 @@ void BaseAnimating::Init()
 			// update scene constant buffer with per-frame ambient SH
 		}
 	}
+	return ok;
 }

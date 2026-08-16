@@ -81,6 +81,6 @@ namespace Hooks
 			int __fastcall Detour(C_BaseAnimating* pThis, void* edx, int a2, int a3, int a4);
 		}
 
-		void Init();
+		bool Init();
 	}
 }

@@ -7,17 +7,17 @@ an open-source ADS-only plugin for Left 4 Neko (L4N)
 
 ## Necola-ADS (L4N 插件版)
 
-本仓库已改造为 **L4N (Left 4 Neko) 附属插件**。只保留 ADS(开镜)功能,其它特性已全部移除。
+本仓库已改造为 **L4N (Left 4 Neko) 附属插件**，产品功能聚焦 ADS(开镜)，并保留 ADS 依赖的序列修正、bodygroup 修复、菜单和输入模块。
 
 > **开发者文档**：接手本项目前请先阅读 [PROJECT_HANDBOOK.md](PROJECT_HANDBOOK.md)，然后按顺序查阅 [docs/L4N_PLUGIN_RESEARCH.md](docs/L4N_PLUGIN_RESEARCH.md)、[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 ### 工作原理
 
 - 不再使用自带 Detours 注入器(`left4dead2_necola.exe` 已删除)。
-- 编译产物 `necola_ads.dll` 放入 `<left4dead2>/neko/plugins/`。
-- L4N 启动时扫描该目录,`LoadLibraryExA` 加载本 DLL,通过 `GetProcAddress("GetL4NPluginInstance")` 取得 `IL4NPlugin*` 实例(见 [l4n_plugin.h](necola/l4n_plugin.h))。
-- L4N 在 `OnModuleLoaded("client")` 回调时触发 Necola 初始化线程;线程等待 `serverbrowser.dll` 加载后,自行用 Source `CreateInterface` 抓取接口并用 MinHook 安装 ADS hook。
-- 核心逻辑完全自治,不依赖 L4N 内部 API,升级稳定。
+- 按 L4N v2.43.0 官方 SDK 示例,编译产物 `necola_ads.dll` 放入 `<left4dead2>/bin/neko/plugins/`。
+- DLL 导出 `GetL4NPluginInstance`,返回 `IL4NPlugin*` 实例(见 [l4n_plugin.h](necola/l4n_plugin.h));L4N 内部具体加载 API 未公开。
+- `OnGameLaunch` 或任意 `OnModuleLoaded` 回调中先到者通过原子门控启动初始化线程;线程每秒检查 8 个 Source 模块。线程创建失败允许后续回调重试,模块等待超时或必需接口/pattern/Hook 缺失时会记录原因并保持插件停用。
+- ADS hook 主要使用 Source 接口和 pattern scan,同时读取少量 `l4n_*` cvar 协调 HUD/sway;升级后仍需验证接口和 pattern。
 
 ### 目录结构
 
@@ -28,7 +28,7 @@ necola/
 ├── vars.h             # 全局配置 (L4N 主题版本号)
 ├── hook/
 │   ├── Entry.cpp      # 接口获取 + MinHook 安装 + ADS 子系统初始化
-│   ├── Hooks.cpp      # 5 个必需 Raw hook
+│   ├── Hooks.cpp      # 5 个 Raw hook 组(当前 11 个 MinHook detour)
 │   ├── Vars.h         # ADS 相关变量
 │   └── Feature/       # AdsSupport / SequenceModify / BodygroupFix / MenuManager / ...
 └── sdk/               # Source SDK 接口与工具
@@ -60,10 +60,10 @@ just build
 
 仓库已配置 [.github/workflows/build.yml](.github/workflows/build.yml),推送到 `main`/`master` 分支即自动构建。
 
-- **自动触发**:push 到 `main`/`master`、PR、打 `v*` 标签
+- **自动触发**:push 到 `main`/`master`、目标为 `main`/`master` 的 PR、打 `v*` 标签
 - **手动触发**:GitHub 仓库 → Actions → Build → Run workflow
 - **产物下载**:Actions 运行成功后,在运行详情页底部 Artifacts 下载 `necola_ads-<commit>`
-- **Release 发布**:打 `git tag v1.4.0 && git push origin v1.4.0`,CI 会自动构建并发布到 GitHub Releases
+- **Release 发布**:打 `v*` 标签后 CI 会构建并尝试发布;仓库需允许 workflow 写入 Releases
 
 环境:`windows-latest` + xmake + vcpkg(已缓存)。无需在本地配置任何工具链。
 
@@ -75,23 +75,23 @@ git push origin v1.4.0
 
 ### 安装
 
-将 `necola_ads.dll` 复制到 L4N 的插件目录:
+将 `necola_ads.dll` 复制到 L4N v2.43.0 SDK 示例指定的插件目录:
 
 ```
-<Steam>/steamapps/common/Left 4 Dead 2/neko/plugins/necola_ads.dll
+<Steam>/steamapps/common/Left 4 Dead 2/bin/neko/plugins/necola_ads.dll
 ```
 
 或:
 
 ```bash
-just install   # 默认 TARGET 见 justfile,可按需修改
+just install   # 先修改 justfile 的硬编码 TARGET;当前默认值不是官方 SDK 路径
 ```
 
 ### 使用
 
-1. 确保已安装 L4N v2.41.0+(即 `left4dead2.exe` 为 L4N 启动器、`bin/left4neko.dll` 存在)。
-2. 将 `necola_ads.dll` 放入 `neko/plugins/`。
-3. (可选)把本仓库根目录 `kpatch.ini` 复制到游戏目录,设置 `[System] debug=true` 可开启控制台与详细日志(日志文件 `L4N-Necola-ADS.log`)。
+1. 安装含插件 SDK 的 L4N 版本;本文档核对基线为 v2.43.0,其它版本先确认随附 `l4n_plugin.h` 和插件目录。
+2. 将 `necola_ads.dll` 放入 `bin/neko/plugins/`。
+3. 关键初始化步骤始终写入游戏根目录的 `L4N-Necola-ADS-diag.log`;如需控制台和详细回调日志,在启动前设置环境变量 `NECOLA_ADS_DEBUG`。`[System] debug` 当前不控制此开关。
 4. 正常通过 Steam / `left4dead2.exe` 启动游戏。L4N 会自动加载本插件。
 5. 游戏内:
    - 控制台执行 `necola_menu` 打开菜单,在 "ADS功能" 子菜单启用 ADS。
@@ -109,10 +109,10 @@ just install   # 默认 TARGET 见 justfile,可按需修改
 
 ### 卸载
 
-删除 `neko/plugins/necola_ads.dll` 即可,L4N 下次启动不再加载。
+删除 `bin/neko/plugins/necola_ads.dll` 即可,L4N 下次启动不再加载。当前版本不支持游戏运行时热卸载。
 
 ### License
 [The Unlicense](LICENSE)
 
 ### Thanks
-[L4D2Fix](https://github.com/kurikomoe/L4D2Fix) · [l4d2-internal-base](https://github.com/Lak3/l4d2-internal-base) · [Left 4 Neko](https://github.com/) (L4N 插件 SDK)
+[L4D2Fix](https://github.com/kurikomoe/L4D2Fix) · [l4d2-internal-base](https://github.com/Lak3/l4d2-internal-base) · Left 4 Neko (L4N 插件 SDK)

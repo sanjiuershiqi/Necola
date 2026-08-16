@@ -1,63 +1,43 @@
-# L4N 平台逆向研究（基于 v2.43.0 完整重分析）
+# L4N 平台与插件接口研究
 
-> 本文档基于 `L4N_v2.43.0.7z` 发行包的解压与逆向分析重写，修正了基于旧版（v2.41）分析的多处结论。
-> 分析对象：发行包全部 86 个文件 + 嵌套包 `other_tools.7z` 内的可执行文件。
+> 基线：仓库内 `L4N_extracted` 保存的 L4N v2.43.0 发行材料，以及当前 Necola 源码。
+> 本文严格区分发行材料直接证明的事实、Necola 当前实现和仍待运行时验证的推断。
 
-## 一、L4N 是什么（修正版结论）
+## 一、证据范围
 
-**L4N = 修改版游戏主程序 + 引擎 shader 扩展 + 工具链**，不是注入式外挂框架。
+本文使用三种证据等级：
 
-| 组件 | 载体 | 作用 |
+| 等级 | 含义 | 示例 |
 |---|---|---|
-| L4N 主平台 | **修改版 `left4dead2.exe`**（完整安装包内，本增量包不含） | 平台本体：本地化、字体、动画扩充、插件系统等全部功能 |
-| Shader 扩展 | `left4dead2/bin/game_shader_generic_neko.dll`（335KB PE32） | 引擎自动扫描 `game_shader_generic_*.dll` 加载，提供 Neko 系 shader（PBR/Toon/Bloom 等） |
-| 工具链 | `bin/neko/`（bat 脚本 + survivor_converter + other_tools.7z） | 模型转换、VPK 生成、启动器等开发工具 |
+| 直接证据 | 官方头文件、readme 或模板明确写出 | `IL4NPlugin` 方法、`config.vdf` 结构 |
+| 实现事实 | Necola 当前源码中的行为 | 1 秒模块轮询、MinHook 安装 |
+| 待验证 | 从接口形态推断，但发行材料没有给出实现 | L4N 内部具体加载 API、回调线程和顺序 |
 
-**卸载方式证明主程序被替换**（readme_l4n.txt:78 原文）：
-> 在游戏目录里搜索 left4dead2.exe 和 game_shader_generic_neko.dll 删除即可，steam 在启动游戏时会重新下载 left4dead2.exe
+当前 `L4N_extracted` 可见 71 个文件。它不包含修改后的 `left4dead2.exe`、实际的
+`game_shader_generic_neko.dll` 或解开的工具可执行文件，因此不能据此完成加载器或 shader DLL
+的二进制级逆向。历史文档中关于 PE 大小、导出表、`LoadLibraryExA` 和 loader 扫描循环的描述，
+均不属于当前证据集能够独立复核的事实。
 
-**修正**：旧版文档推测"L4N 是注入 DLL/ASI"——错误。L4N 直接替换游戏主程序，随游戏进程启动，无注入过程。这也解释了为什么 `-hide_neko` 启动参数就能禁用它（exe 内部判断参数后走原版逻辑）。
+## 二、L4N 的可确认定位
 
-**插件系统引入时间**：更新日志第 653 行（2.34.0 前后）"新增：l4nplugin插件系统"。
+官方 readme 将 L4N 定义为 L4D2 客户端补丁，并声明支持游戏版本 2.2.4.3、Windows 10+：
 
-## 二、发行包结构（v2.43.0 实测，86 文件 / 19.5MB）
+- 安装方式是把发行包覆盖到游戏根目录。
+- 仅安装 shader 时可跳过复制 exe。
+- 卸载说明要求删除被替换的游戏 exe 和 `game_shader_generic_neko.dll` 后由 Steam 恢复。
+- `-hide_neko` 可禁用 L4N。
 
-```
-L4N_v2.43.0.7z
-├── readme_l4n.txt                  # 1601 行说明 + 完整更新日志
-├── left4dead2 no-insecure.bat      # 免 -insecure 启动脚本
-├── bin/neko/                       # 开发者工具
-│   ├── plugins/l4n_plugin.h        # ★ 插件 SDK 头文件（含官方示例）
-│   ├── other_tools.7z              # ★ 嵌套包:nekook 启动器/nekomdl 模型工具/VPK shell 扩展
-│   ├── survivor_converter/         # 8 个幸存者基准 .mdl
-│   ├── to_l4n_survivor.bat         # 幸存者模型转换流水线
-│   ├── survivor_vpk_gen.bat        # VPK 打包
-│   ├── build_sound_cache.bat
-│   └── copy_sentence.bat
-├── left4dead2/
-│   ├── bin/
-│   │   ├── game_shader_generic_neko        # 28 字节文本标记(内容即 dll 文件名)
-│   │   └── game_shader_generic_neko.dll    # ★ 引擎自动加载的 shader DLL
-│   ├── materials/l4n/              # bloom_map/brdf_lut/neko_tonemap 等内嵌资源
-│   ├── neko/                       # ★ 配置模板目录(见第六节)
-│   │   ├── config_template.vdf
-│   │   ├── localize_overrides_template.vdf
-│   │   ├── scheme_overrides_template.vdf
-│   │   ├── sequence_event_template.vdf
-│   │   ├── server_name_filter_template.txt
-│   │   ├── l4ngui_schinese.vdf / l4ngui_english.vdf   # GUI 本地化(UTF-16LE VDF)
-│   │   ├── mdl_extension.qc        # ★ 模型扩充 QC 模板(动画扩充用)
-│   │   └── neko_proxy.vmt
-│   └── shaders/fxc/                # 30+ 编译好的 shader(.vcs)+.vmt
-└── reshade-shaders/Shaders/L4N/L4N_Util.fx   # ReShade Bridge 配套
-```
+这些材料足以说明 L4N 的分发方式包含游戏主程序补丁/替换，而不是把它描述成一个普通的
+独立 DLL 插件框架。但修改版 exe 不在仓库中，所以内部如何加载模块、是否使用额外注入技术、
+`-hide_neko` 的具体分支实现仍未知。
 
-注：本包为增量更新包，**不含修改版 left4dead2.exe**（完整包才有，readme:76 "仅安装着色器则跳过复制exe文件"可证）。
+L4D2 是 32 位进程，readme 也明确提醒不能给游戏使用 64 位 DXVK DLL。因此进程内 L4N 插件
+必须构建为 x86；官方 SDK 没有进一步规定编译器版本或 CRT 链接方式。
 
-## 三、插件接口契约（v2.43.0 原文）
+## 三、插件 ABI
 
-### 3.1 接口定义
-`bin/neko/plugins/l4n_plugin.h` 全文核心（与旧版接口完全一致，未破坏兼容）：
+直接证据来自
+[`L4N_extracted/bin/neko/plugins/l4n_plugin.h`](../L4N_extracted/bin/neko/plugins/l4n_plugin.h)。
 
 ```cpp
 class IL4NPlugin {
@@ -66,322 +46,184 @@ public:
     virtual unsigned int GetInterfaceVersion() { return 1; }
     virtual const char* GetName() { return "MyPlugin"; }
     virtual const char* GetVersion() { return "1.0"; }
-
     virtual void OnModuleLoaded(const char* module_name, std::uintptr_t handle) {};
     virtual void OnGameLaunch() {};
     virtual void OnD3DCreated(void* d3d) {};
     virtual void OnD3DDeviceCreated(void* d3d_device, bool is_dxvk) {};
 };
+
 typedef IL4NPlugin* (*GetL4NPluginInstanceFunc)();
 ```
 
-### 3.2 官方示例（v2.43.0 新增，旧版没有）
-头文件尾部注释块给出了**官方钦定写法**：
+接口表面是：一个虚析构函数、3 个元数据方法和 4 个回调。不能把它计为“5 个回调”。
 
-```cpp
-class MyPlugin : public IL4NPlugin {
-public:
-    void OnModuleLoaded(const char* module_name, std::uintptr_t handle) override {
-        std::string_view name = module_name;
-        auto hModule = std::bit_cast<HMODULE>(handle);   // ← handle 就是 HMODULE
-        if (name == "client") { /* do some thing... */ }
-        else if (name == "engine") { /* do some thing... */ }
-    }
-};
-extern "C" __declspec(dllexport) IL4NPlugin* GetL4NPluginInstance() {
-    static MyPlugin instance;    // ← static 局部实例,官方模式
-    return &instance;
-}
+官方示例直接证明以下契约：
+
+- DLL 示例路径为游戏根目录下的 `bin/neko/plugins/MyPlugin.dll`。
+- DLL 导出无名称修饰的 C 符号 `GetL4NPluginInstance`。
+- 工厂返回一个静态生命周期的 `IL4NPlugin` 实例。
+- `OnModuleLoaded` 的整数句柄预期通过 `std::bit_cast<HMODULE>` 使用。
+- 示例模块名是 `client`、`engine`，没有 `.dll` 后缀。
+
+ABI 没有规定：
+
+- 返回对象的所有权和宿主是否会调用析构函数。
+- 回调调用次数、先后顺序、线程、重入规则和异常处理。
+- `OnModuleLoaded` 是否覆盖所有模块，以及所有模块名的规范化规则。
+- D3D 指针的具体 COM 类型、所有权、设备重置和线程规则。
+- 卸载、热重载或显式 shutdown 协议。
+
+由于接口是 C++ 虚表 ABI，而工厂只对外暴露 C 符号，插件还隐含依赖宿主兼容的 C++ 对象布局。
+接口版本默认返回 1，但发行材料没有展示宿主如何校验该值，也不能仅凭一份头文件断言它长期未变。
+
+## 四、加载与生命周期边界
+
+头文件和目录结构强烈暗示 L4N 在游戏进程内加载 `bin/neko/plugins` 下的 DLL，取得工厂并调用
+接口回调。具体使用 `LoadLibrary`、`LoadLibraryEx` 还是等价机制，发行材料没有说明。
+
+当前 Necola 不依赖未经证实的回调顺序：
+
+1. `OnGameLaunch` 或任意一次 `OnModuleLoaded` 中先到者通过共享原子标志尝试创建线程。
+2. `OnModuleLoaded` 把模块名和句柄缓存到 `L4N::Env`。
+3. 初始化线程每 1 秒用 `GetModuleHandleA` 检查 8 个模块，最多循环 120 次。
+4. 120 次后仍缺模块会记录超时并中止，不会进入接口获取和 Hook 安装。
+5. 接口获取和 pattern scan 仍直接使用 `GetModuleHandleA`，尚未消费 `L4N::Env` 的句柄缓存。
+
+若 `CreateThread` 失败，原子标志会复位，后续 L4N 回调可再次尝试。
+
+等待列表是：
+
+```text
+client.dll
+engine.dll
+vgui2.dll
+datacache.dll
+vguimatsurface.dll
+inputsystem.dll
+filesystem_stdio.dll
+vstdlib.dll
 ```
 
-**要点**：
-- `handle` 参数 = `LoadLibrary` 返回的 `HMODULE`，可直接用于 `GetProcAddress`——官方明确此用途
-- 模块名匹配用 `name == "client"`（**无 .dll 后缀**），与我们日志实测一致
-- 官方示例即我们的实现方式（导出 C 函数 + static 实例）
+`Entry.cpp` 会从 `vstdlib.dll` 获取 `ICvar`，因此该模块也在等待列表中。当前代码没有条件变量、
+回调通知唤醒或 100 ms 轮询，也不等待
+`serverbrowser.dll`。
 
-### 3.3 插件加载流程（推断 + 实测验证）
-主平台 exe 内的加载逻辑无法直接反汇编（exe 不在包内），但由接口设计 + 行为日志可确认：
+Necola 的两个 D3D 回调为空。菜单和准星逻辑通过 Source VGUI/ConVar 实现，不能据此推导 L4N
+D3D 回调在 DX9/DXVK 下的真实语义。
 
-1. 游戏启动早期（引擎模块加载阶段），L4N 扫描 `<left4dead2>/neko/plugins/*.dll`
-2. `LoadLibraryExA` 加载 → 触发插件 `DllMain(DLL_PROCESS_ATTACH)`
-3. `GetProcAddress(hModule, "GetL4NPluginInstance")` → 调用得 `IL4NPlugin*`
-4. 引擎每加载一个 DLL，L4N 回调 `OnModuleLoaded(name, hModule)`
-5. 游戏启动完成前回调 `OnGameLaunch`
+## 五、L4N 配置扩展点
 
-**回调时机实测**（来自我们插件的游戏日志）：
-```
-OnGameLaunch()                     ← 此时 client.dll 等均未加载!
-OnModuleLoaded("engine", ...)      ← 紧接着逐个上报
-OnModuleLoaded("inputsystem"/"materialsystem"/"datacache"/...)
-OnModuleLoaded("client", ...)      ← 关键节点
-OnModuleLoaded("server"/"gameui")
-OnModuleLoaded("vaudio_miles")     ← 较晚
-OnModuleLoaded("serverbrowser")    ← 最晚之一
-```
+`left4dead2/neko/config_template.vdf` 是 Valve KeyValues 模板，修改后必须另存为 `config.vdf`。
+模板明确警告语法错误会使配置失效。
 
-**关键限制**（实测确认）：L4N **不上报所有模块**——`filesystem_stdio.dll`、`vstdlib.dll` 从不回调。因此插件**不能纯依赖回调**判断就绪，必须保留 `GetModuleHandleA` 兜底轮询（我们的实现正是如此）。
+与 Necola 最相关的段：
 
-### 3.4 D3D 回调（未验证）
-`OnD3DCreated`/`OnD3DDeviceCreated(void*, bool is_dxvk)` 设计用于渲染相关插件。`is_dxvk` 参数说明 L4N 官方考虑了 dxvk 场景（用户用 `-vulkan` 时 dxvk 生效）。本项目未使用（我们的菜单走 VGUI Paint 而非 D3D 绘制）。
-
-## 四、necook 与其他工具（other_tools.7z 分析）
-
-### 4.1 nekook（第三方启动器，非 L4N 官方）
-- `nekook.exe`（463KB PE32 console）+ `nekook_core.dll`（7.4MB PE32 DLL）
-- 版本 "Nekook v1.6 - by Starfelll"，更新日志注明"1.6 支持l4n"
-- 用途（nekook_readme.txt）：**mod 开发启动器**——把任意目录挂载进 Source 文件系统（优先级高于 vpk）、免打包测试、配合 nekomdl 热重载 mdl/vmt
-- 关键字符串证据：`INJECT ERROR: %s`、`Nekook_Main` 导出、`-nekook "`/`-vpkwhitelist`/`left4dead2.exe`/`-hide_neko`、`too many neko for index buffer`
-- `nekook_core.dll` 导出表（70 个，全部 `LM_*` 前缀）= **LibAsmMagic 运行时库**：`LM_PatternScan(Ex)`、`LM_HookCode(Ex)`、`LM_Assemble/Disassemble`、`LM_Alloc/FreeMemory`、`LM_EnumModules/Processes/Symbols`、`LM_FindSymbolAddress` 等——与我们插件的 MinHook + 自研 pattern scan 属同类技术栈；nekook 用它给引擎打 index buffer 扩容补丁（对应 config 的 `index_buffer_size`）
-- 游戏内亦有配套命令：`l4n_nekook_path_append/remove`（readme:471-472，运行时挂载搜索路径）
-- **结论**：nekook 是开发期工具。玩家正常运行游戏不需要它；插件作者可用它加速"改资源→进游戏"迭代
-
-### 4.2 nekomdl（模型工具）
-`nekomdl.exe`（7.2MB PE32+ x64）+ `nekomdl.7z`（源码/文档）。配合 nekook 实现 **mdl/vmt 热重载**（不重启游戏更新模型）——对做 ADS 动画模型的作者有价值。
-
-### 4.3 VPKShellExtensions
-资源管理器集成：vpk 缩略图 + mod 标题元信息显示。
-
-## 五、与 ADS 插件直接相关的 L4N 机制
-
-逆向更新日志与配置模板发现的、与本项目功能强相关的官方机制：
-
-### 5.1 幸存者动画扩充（max_sequences）
-config.vdf `survivors` 段为 8 名幸存者设定 `max_sequences`（如 nick=923, zoey=947）。L4N 的动画导入机制：同名动画不导入，否则在末尾扩充。readme 长注释解释了服务端按**序号**同步动画、按 **Activity** 调用动画的机制，以及 `l4n_survivor_sequence_strip` cvar 可截断扩充动画。
-
-**对本项目的意义**：ADS 动画走 weapon viewmodel（非幸存者模型），但同样的"序号同步 + Activity 调用"原理约束着我们的序列重映射逻辑——服务器不知道客户端扩充的 ADS 序列，所以我们必须在客户端把服务器序列号重映射到本地扩充序列（这正是 SequenceModify 模块存在的根本原因，官方注释佐证了设计正确性）。
-
-### 5.2 sequence_event.vdf（动画事件粒子重定向）
-```
-// 动画事件设置，目前只支持第一人称武器v模
-"sequence_event" {
-    "particle_map" {
-        // "old_name" "new_name"   重定向粒子
-        // "name" ""               留空则忽略该粒子
-    }
-}
-```
-**第一人称武器 v 模动画事件**的官方拦截点。若 ADS 动画的枪口焰/粒子事件需要调整，可建议用户用此官方机制，而不必改插件。
-
-### 5.3 l4n_vm_sway_ignore_helpinghand
-readme:383 原文："是否在触发伸手动画时禁用sway效果，**启用后可能会导致一些插件的动画(如ADS)没有sway效果**"。
-**L4N 官方更新日志直接把 ADS 列为插件生态案例**——证明本项目的 ADS 插件定位与官方预期完全吻合，且 L4N 的 sway（武器摆动）系统会与插件 ADS 动画交互。排查"ADS 时武器不摆动/抖动"问题时应先检查此 cvar。
-
-### 5.4 字体替换（font.replace）
-config.vdf 可做全局字体替换（如 Tahoma→微软雅黑）。我们菜单用 `Microsoft YaHei` 25px——若用户系统缺该字体，可指引其通过 L4N font 配置全局兜底。
-
-### 5.5 l4nscope：L4N 原生自定义开镜（重大发现，与本项目同域！）
-
-v2.43.0 readme:357 将 `l4nscope` 列为"以下功能需要MOD适配"之一；更新日志 [2.28.0] - 2026-05-24："新增：**以v模为单位的武器自定义开镜功能**"。
-
-即 L4N 平台原生支持**武器 viewmodel mod 内置开镜效果**——与我们的 ADS 插件属同一功能域。
-
-配套的 HUD 侧机制：
-- `l4n_patch_hud_scope 1`（readme:428）：是否**接管狙击枪开镜 HUD 的渲染**
-- `l4n_hud_scope_draw_padding_block`（readme:427）：HUD 开镜黑边填充
-- GUI 项 `🐱allow_hud_hud_scope_display`（l4ngui_schinese.vdf）："允许HUD显示开镜"
-
-**对本项目的意义**：
-1. **共存问题**：若用户武器 mod 已适配 l4nscope，同时开启插件 ADS 可能双重处理开镜状态。建议后续在插件里检测/文档说明二者选一，或提供开关
-2. **HUD 依赖**：`l4n_patch_hud_scope` 接管狙击枪开镜 HUD 时，我们的准星隐藏逻辑（Paint 钩子里 `crosshair 0/1`）可能与 L4N 的接管渲染交互——排查"开镜时准星异常"要先确认此 cvar 状态
-3. **定位差异**：l4nscope 需要每个武器 mod 单独适配（QC 层），我们的 ADS 是通用序列重映射（运行时层，零适配）——互补关系而非纯竞争
-
-## 五A、L4N 完整功能面（l4ngui_schinese.vdf 逆向）
-
-GUI 本地化文件（116 行，约 100 个 token）完整暴露 L4N 游戏内设置项。按类归纳：
-
-| 分类 | 功能项（节选） |
-|---|---|
-| **屏幕后处理**（需 `-l4n_use_neko_engine_post`） | 色调映射（Neutral/Unity 推荐、Linear/Reinhard/Filmic/CE 等曲线）、亮度、伽马、场景曝光、局部对比度（仅负/仅正/全启用）、暗度限制（lightmap/ambient 分开）、NekoBloom 泛光（强度/激发亮度/亮度限制/半径/混合模式/遮罩贴图）、NekoSky 亮度与叠加纹理 |
-| **第一人称设置** | 伸手动画（物品/援助）、sway 滞后时间、禁止手指拉伸、模型位置偏移、自发光 ±10%/重置、VLG↔PBR 材质互转、手模转 NekoToon |
-| **实体相关** | 随机身高、玩家实体染色（禁用/重置/随机）、幸存者光照强度、全局幸存者缩放、准星处角色模型转 NekoToon |
-| **开镜/准星**（与 ADS 同域） | 允许 HUD 显示开镜、HUD 开镜空白区域填充、精确第三人称准星（缩放/动态/透明度）、`l4nscope` 自定义开镜 |
-| **手电筒** | 亮度倍率、R/G/B 颜色倍率、手电筒枪火、动态枪火光源（遵循/忽略消音粒子、最大距离、抑制曝光） |
-| **贴花** | 静态道具/实体/特感/幸存者/普感 5 类独立开关 |
-| **HUD/界面** | 队友状态显示、接管 HUD 队友信息（实验）、玩家列表（Steam 头像/胆汁图标裁剪）、内存占用显示、Hud 菜单位置 |
-| **NekoToon** | 描边（禁用/世界空间厚度/屏幕空间厚度）、描边厚度倍率、统一 LightWarp |
-| **杂项** | 快速录 DEMO、禁普感布娃娃、屏幕震动强度、受击晃动强度、实体消逝、一致性检查、第三人称开火声音修复、自定义指令菜单 |
-| **实验性** | 接管 HUD 队友信息、接管 ReShade 效果渲染（`l4n_reshade_draw`，HUD 前渲染 ReShade 滤镜） |
-
-**关键 cvar 速查**（readme 完整表 60+ 个，最相关节选）：
-
-| cvar | 作用 | 与本项目关系 |
+| 段/键 | 直接可确认用途 | Necola 用法 |
 |---|---|---|
-| `l4n_vm_sway` / `l4n_vm_sway_interp` / `l4n_vm_sway_scale` | v 模摆动开关/恢复时间/幅度 | ADS 动画观感直接相关 |
-| `l4n_vm_sway_ignore_helpinghand` | 伸手动画时禁 sway | 官方注释点名影响"插件的动画(如ADS)" |
-| `l4n_vm_offset_x/y/z` | 全局 v 模位置偏移 | 与 ADS 武器偏移叠加 |
-| `l4n_pin_viewmodel` | 固定 viewmodel 实体 | ADS 视角调试用 |
-| `l4n_patch_hud_scope` / `l4n_hud_scope_draw_padding_block` | 接管狙击枪开镜 HUD / 黑边填充 | 开镜 HUD 冲突排查 |
-| `l4n_view_punch_scale` / `l4n_screen_shake_scale` | 受击晃动/屏幕震动 | ADS 稳定射击体验 |
-| `l4n_game_hud_visible` | HUD 总开关 | 准星隐藏逻辑交互 |
-| `l4n_allow_lobby_cheats` | 大厅作弊限制提示 | 部署环境理解 |
-| `l4n_scripted_hud_allow[_slot1~15]` | 脚本化 HUD 渲染开关 | 15 个 slot——插件 HUD 扩展点候选 |
+| `key_bind_acts` | 给游戏按键设置增加“显示名 -> 命令串”条目 | 可填 `necola_*` 命令；运行时接受情况仍应实测 |
+| `custom_commands` | 给 `l4n_custom_command_menu` 增加 `cmd`/`cvar` 条目 | 可把 ADS 命令放进 L4N 自定义命令菜单 |
+| `launch_options` | 由 L4N 增加启动参数 | `-hide_neko` 等三项明确不能写在这里 |
+| `environment_variables` | 设置 Vulkan layer 环境变量 | 用于 DXVK/ReShade 排障，与 ADS 间接相关 |
+| `font.replace` | 全局字体名替换 | 可协调菜单字体，但不能保证缺失字体一定可用 |
+| `survivors.*.max_sequences` | 幸存者扩展动画截断阈值 | 只直接适用于幸存者，不证明武器 ADS 的序列协议 |
 
-**关键 concmd**：
-- `l4n_vm_offset2 [x/dx/y/dy/z/dz/reset] [value]`：当前 v 模位置偏移（含增量模式）——ADS 武器偏移官方调法
-- `l4n_print_launch_options`：输出当前可识别启动项——部署排障第一命令
-- `l4n_env_report`：输出运行环境信息
-- `l4n_nekook_path_append/remove "path"`：**运行时**添加/移除高优先级资产搜索路径
-- `l4n_reload_config` / `l4n_reload_sequence_event_vdf` / `l4n_reload_vgui_schemes`：三类配置热重载
-- `l4n_revert_cvar <name>`：cvar 恢复默认（cvar 值不持久化，建议写 autoexec.cfg）
+模板还包含 buffer、datacache、mimalloc、wave cache 和 addoninfo 等环境配置。不要把 GUI 本地化
+token 或模板键误称为 L4N 对插件开放的编程 API。
 
-## 五B、MOD 适配协议（mdl_extension.qc 逆向）
+`key_bind_acts` 只证明配置语法。它是否校验命令是否已注册、何时构造按键菜单、是否接受晚注册
+插件命令，当前证据集没有运行日志，因此应在目标版本中验证。Necola 自身没有读取
+`FeatureConfig.json/KeyBinds` 或自动执行 `bind` 的代码。
 
-`neko/mdl_extension.qc` 是模型 mod 适配 L4N 的 QC 命令示例，揭示了完整的模型层扩展协议：
+## 六、l4nscope 与 ADS
 
-1. **`$NekoModel` QC 块**：新 QC 命令，支持 gltf/glb/fbx 源文件直接引用；内含形态键眼追协议——4 个方向 flex + 2 个 flexcontroller（`l4neyes_updown`/`l4neyes_rightleft`），绑定公式 `"%eye_look_up" = max(-l4neyes_updown, 0)`。注释强调：新 flexcontroller 必须加到已有列表**底部**，否则破坏排序导致表情联机同步问题
-2. **自定义形态键 UI**：`flexcontroller l4n range 0 1 "名称"`——分组名 `l4n` 的控制器自动进 L4N 模型选项面板
-3. **BodyGroup 扩展**：超过 2 个选项需 `⭐` 前缀（防与静态表情冲突）；Model/Body/NekoModel 也计入 BodyGroup，**所有组合不能超过 2147483647**
-4. **`$TextureGroup` 材质预设**：多套皮肤切换（需 nekomdl 编译器支持）
-5. **`$KeyValues left4neko` 元数据块**：`name`（用户友好名）、`name_suffix`、`player_foot`（**按 bodygroup 选项的足 IK 修正**，如高跟鞋 `"1" "-2.1,-60.0"`）、`scale`
+L4N readme 明确列出 `l4nscope`：以武器 viewmodel 为单位、需要 MOD 适配的自定义开镜效果。
+`neko_refract.vmt` 给出了实际资产协议：
 
-**其他 Modder 扩展点**（readme For Modder 章节）：
-- `neko_proxy.vmt`：平台扩充材质代理文档，现有"获取弹药数量/备用弹药数量"代理
-- `l4n/scripts/sound/*.txt`：自动加载为声音脚本（vpk 内需带 sound.cache）
-- `l4n/particles/*.pcf`：自动加载粒子（`!` 前缀文件名有对应效果），无需 manifest 依赖
+- 在 `materials/vgui/l4n` 下准备 `scope_xx.vmt`。
+- 可选准备左右填充材质 `scope_pl_xx.vmt`、`scope_pr_xx.vmt`。
+- `xx` 是武器 viewmodel 文件名，例如 `scope_v_snip_awp.vmt`。
+- 主开镜贴图按 4:3 制作，左右缺省区域可由纯黑填充。
 
-## 六、L4N 全部配置扩展点（v2.43.0 config_template.vdf 全量）
+因此 l4nscope 当前可确认的是材质/HUD 资产命名协议，不能描述成已证实的 QC 动画协议。
 
-`neko/config_template.vdf` → 复制为 `config.vdf` 生效。全部段落：
+相关 L4N 控制项：
 
-| 段/键 | 类型 | 用途 | 插件可复用性 |
-|---|---|---|---|
-| `environment_variables` | 段 | 设 VK layer 黑/白名单（`VK_LOADER_LAYERS_DISABLE`/`ENABLE`），解决 dxvk+ReShade 内存异常 | 环境，间接 |
-| `custom_commands` | 段 | 自定义指令挂入 `l4n_custom_command_menu` 菜单。支持 `cmd`（命令串）/`cvar`（可 `delta`/`min`/`max` 步进切换） | **高**：可把 `necola_ads` 等注册进去 |
-| `key_bind_acts` | 段 | 扩展"选项→键盘/鼠标→按键设置"列表，值为命令串 | **高**：`necola_*` 命令可直接加入 |
-| `disable_chromehtml` | 键 | 禁引擎内置浏览器，省 ~100MB 内存 | 低 |
-| `index_buffer_size` / `vertex_buffer_size` | 键 | 引擎 buffer 扩容（防 "Too many indices" 弹窗），默认 32768 | 环境（nekook 补丁配套） |
-| `font.anti_aliasing` / `font.min_tall` / `font.replace` | 段 | 全局字体抗锯齿/最小字号/字体名替换 | 中（菜单字体兜底） |
-| `launch_options` | 段 | L4N 代加启动项。`"-novid" ""` / `"+cvar" "value"` 写法。**注意 `-hide_neko` 在此无效**，必须真实启动参数 | **高**：部署文档可指引 |
-| `force_bind_l4n_menu` | 键 | 强制绑 `l4n_menu` 到 `\` 键 | 低 |
-| `lock_datacache_size` | 键 | datacache 锁 2048MB | 环境 |
-| `mimalloc` | 键 | 实验性：mimalloc 替换 tier0 分配器 | 环境（实验性，dxvk 下易崩） |
-| `survivors.<role>.max_sequences` | 段 | 每角色动画序列上限（见 5.1） | 机制参考 |
-
-### 6.1 key_bind_acts 机制结论（v2.43.0 再确认）
-模板实配条目（`l4n_menu`、`+l4n_lookat`、`thirdpersonshoulder` 等）再次确认：
-- **不校验命令来源/注册状态**——含引擎原生命令 `thirdpersonshoulder`
-- 条目 = 显示名 + 命令串，进游戏按键设置 UI，绑定的键由引擎 `bind` 机制触发
-- 本插件用法（已验证可行）：
-  ```
-  "key_bind_acts" {
-      "Necola ADS 开镜"      "necola_ads"
-      "Necola ADS 混合状态"  "necola_ads_mixed"
-      "Necola ADS 强制复位"  "necola_ads_foreceback"
-      "Necola ADS 上一状态"  "necola_ads_back"
-      "Necola 菜单"          "necola_menu"
-  }
-  ```
-
-### 6.2 其余 4 个配置模板
-
-| 模板 | 另存为 | 用途 |
+| 控制项 | 官方说明 | 建议验证 |
 |---|---|---|
-| `localize_overrides_template.vdf` | `localize_overrides.vdf` | 本地化文本键值覆盖（角色名等） |
-| `scheme_overrides_template.vdf` | `scheme_overrides.vdf` | VGUI 主题覆盖（字体样式等），控制台 `l4n_reload_vgui_schemes` 热重载 |
-| `sequence_event_template.vdf` | `sequence_event.vdf` | 第一人称武器动画粒子重定向（见 5.2） |
-| `server_name_filter_template.txt` | `server_name_filter.txt` | 服务器名黑名单（正则，过滤 RPG 服等） |
+| `l4n_patch_hud_scope` | 接管狙击枪开镜 HUD 渲染 | 与 Necola 准星隐藏和原生 scope 是否叠加 |
+| `l4n_hud_scope_draw_padding_block` | 填充 HUD 开镜黑边 | 不同宽高比下的显示 |
+| `l4n_game_hud_visible` | HUD 总显示开关 | Necola 已在隐藏准星前读取它 |
+| `l4n_vm_sway`/`interp`/`scale` | viewmodel 摆动 | ADS 动画观感和抖动 |
+| `l4n_vm_sway_ignore_helpinghand` | 伸手动画时禁用 sway | readme 明确点名可能让 ADS 插件动画失去 sway |
+| `l4n_vm_offset_x/y/z` | 全局 viewmodel 偏移 | 与开镜模型自身偏移叠加 |
+| `l4n_vm_offset2` | 调整当前 viewmodel 偏移 | 单武器校准 |
+| `l4n_pin_viewmodel` | 固定 viewmodel 实体 | 对 ADS 的具体影响未知，需实测 |
 
-## 七、我们的模块等待实现（沿用，依据补强）
+“l4nscope 与 Necola 一定双重处理”“一定发生准星冲突”都只是测试假设。正确做法是在相同武器、
+相同 MOD 和相同 cvar 组合下分别测试原生 scope、l4nscope 和 Necola ADS。
 
-问题：`OnGameLaunch` 时引擎模块全未加载，但 `CreateInterface` 需要 client.dll/engine.dll 等已加载。
+## 七、模型与资源协议
 
-实现（[necola/dllmain.cpp](../necola/dllmain.cpp)）：
-1. **事件驱动**：每次 `OnModuleLoaded` 回调 `notify_all` 唤醒等待线程（官方 handle=HMODULE 用法已按 3.2 节确认，但接口获取走 `CreateInterface` 更直接，未存 handle）
-2. **兜底轮询**：100ms `GetModuleHandleA` 检查 7 个关键模块（`filesystem_stdio` 等 L4N 不上报的模块靠它）
-3. **单线程保证**：`std::call_once` 防止 OnGameLaunch/OnModuleLoaded 并发各起线程（历史教训：曾因此 MinHook 重复初始化崩溃）
+`mdl_extension.qc` 自称“示例”，可以确认以下扩展语法，但不应称为完整协议：
 
-等待清单：`client.dll, engine.dll, vgui2.dll, datacache.dll, vguimatsurface.dll, inputsystem.dll, filesystem_stdio.dll`
+- `$NekoModel` 示例直接引用 glTF，并展示眼追 flex/flexcontroller 写法；同一文件的 BodyGroup 示例另展示 GLB/FBX，不能据此断言 `$NekoModel` 对三种格式完全等价。
+- `l4n` 分组的 flexcontroller 会显示在 L4N 模型选项中。
+- BodyGroup 组合受 32 位有符号整数上限约束；超过两个选项的示例使用星号前缀避免静态表情冲突。
+- `$KeyValues left4neko` 示例包含用户名称、后缀、足部修正和缩放。
+- nekomdl 支持多个 `$TextureGroup`。
 
-## 八、特征码失效案例（L4N 修改引擎的实证）
+其他直接可确认的资源扩展：
 
-[Offsets.cpp](../necola/sdk/Offsets.cpp) 的 `CParticleSystemMgr` pattern（`0C 8B 0D ? ? ? ? 52 50 E8 82 5F`）在 L4N 修改过的 client.dll 上扫描失败返回 0。崩溃日志实证：
-```
-Step 3.5: Offsets check: m_dwCParticleSystemMgr=00000000
-Step 3.6: dereferencing offsets ...
-!!! SEH exception 0xC0000005 in ModuleEntry::Load
-```
-应对：所有 pattern 偏移解引用前判空（Entry.cpp Step 3.6）。ADS 功能不依赖 ParticleSystemMgr，null 时安全跳过。
+- `sequence_event.vdf` 仅针对第一人称武器 viewmodel 动画事件，可重定向或忽略粒子。
+- `l4n/scripts/sound/*.txt` 用于扩展声音脚本。
+- `l4n/particles/*.pcf` 用于扩展粒子资源。
+- nekook 文档只确认高优先级文件系统挂载、免 VPK 测试及部分资产热重载；当前材料不足以支持
+  对其注入实现、导出表或底层 Hook 库的结论。
 
-**注意**：L4N 既然替换了游戏主程序，引擎 DLL 是否被改以版本而异；每次 L4N 大版本更新后应跑一遍日志确认 pattern 命中情况。
+## 八、Necola 对 L4N 的实际依赖
 
-## 九、L4N 插件能力极限分析（API 面 × 进程能力 × 硬约束）
+Necola 的核心 ADS Hook 使用 Source 接口和 pattern scan，不调用已知的 L4N 私有函数；但它并非
+“完全不依赖 L4N”：
 
-> 本章回答："L4N 插件到底能做什么、做不到什么、天花板在哪"。
+- 依赖 L4N 插件 ABI 被加载并接收生命周期回调。
+- 缓存 L4N 上报的模块句柄。
+- 通过 `ICvar` 检测并读取 `l4n_game_hud_visible`、`l4n_patch_hud_scope`、
+  `l4n_vm_sway` 和 `l4n_vm_sway_ignore_helpinghand`。
+- 准星逻辑尊重 L4N HUD 总开关，并直接修改 `crosshair` 根 ConVar。
 
-### 9.1 API 面：L4N 给插件的全部东西（实测实锤）
+当前初始化尝试获取 17 个 Source 接口，并在安装前验证当前功能必需的接口和 pattern。随后安装
+5 个 Raw hook 组中的 11 个 MinHook detour，另替换 3 个 RecvProp proxy；任何必需步骤失败都会
+中止并回滚已安装的 Hook。ADS 状态是 `NONE + LEVEL1..4`，MIXED 是可与这些层级组合的独立状态。
 
-[l4n_plugin.h](../necola/l4n_plugin.h) 完整接口仅 8 个虚函数：
+Pattern 失败只能证明特定二进制环境与签名不匹配，不能仅凭失败断言“L4N 修改了 client.dll”。
+每次 L4D2、L4N 或关键 MOD 更新后都应重新验证接口版本、pattern 唯一性和模型序列布局。
 
-| 类别 | 方法 | 说明 |
-|---|---|---|
-| 元数据 | `GetInterfaceVersion()` | 恒为 1（2.34.x 引入至今未变） |
-| 元数据 | `GetName()` / `GetVersion()` | 显示用 |
-| 生命周期 | `OnGameLaunch()` | 游戏启动（引擎模块加载前） |
-| 生命周期 | `OnModuleLoaded(name, handle)` | 引擎 DLL 逐个加载时（handle=HMODULE） |
-| 渲染 | `OnD3DCreated(d3d)` / `OnD3DDeviceCreated(device, is_dxvk)` | D3D 设备创建 |
+## 九、安全与生命周期
 
-**L4N 不提供的东西**（接口中完全没有）：
-- ❌ 无 `OnUnload`/shutdown 回调——卸载只能靠 `DllMain(PROCESS_DETACH)`（游戏退出）
-- ❌ 无逐帧/逐 tick 事件——渲染/逻辑循环要自己 Hook（我们走 Paint 钩子）
-- ❌ 无游戏事件总线——事件要自己 Hook GameEventManager
-- ❌ 无配置读写 API——自己管文件（我们用 JSON）
-- ❌ 无 UI/菜单扩展 API——进不了 L4N 菜单，只能自绘 VGUI（我们自绘菜单）
-- ❌ 无插件间通信机制
-- ❌ 无 L4N 内部功能调用接口——l4nscope/l4ns/NekoBloom 等功能对插件是黑盒，想复用必须逆向修改版 exe
+L4N 插件是游戏进程内的原生 DLL。官方材料没有展示签名校验、权限隔离、沙箱、崩溃隔离或
+插件间权限模型，因此安装插件等同于信任其本机原生代码。
 
-**定性**：L4N 插件系统本质是"**加载器 + 生命周期通知器**"，不是框架。接口只负责告诉你"时机到了"，其余全部自理。
+官方 readme 把 `-insecure` 描述为用户担忧 VAC 风险时的可选措施，并附带一个明确不使用
+`-insecure` 的启动脚本。由此可知 `-insecure` 不是已证实的 L4N 插件加载前置条件，也不能把
+它写成 VAC 安全保证。
 
-### 9.2 进程能力：插件的真实天花板 = 整个进程，而非 L4N
+ABI 没有 shutdown 回调，不等于宿主一定不支持卸载，但当前 Necola 确实不支持安全热卸载：
 
-插件是运行在游戏进程内的普通 DLL，因此**能做本进程内任何代码能做的事**——天花板是 Source 引擎（和逆向工作量），不是插件 ABI：
+- 初始化线程句柄立即关闭，无法取消或等待。
+- `DLL_PROCESS_DETACH` 在 loader lock 下执行复杂清理。
+- 3 个 RecvProp proxy 会在回滚/退出清理时恢复，但控制台命令仍没有注销或释放。
+- 控制台命令没有注销或释放。
 
-| 能力 | 途径 | 本项目已用 |
-|---|---|---|
-| 引擎全部接口 | `CreateInterface`（16 个接口） | ✅ Entry.cpp Step 3 |
-| 任意函数 Hook | MinHook（虚表/函数） | ✅ Paint/动画序列等 |
-| 任意内存读写 | pattern scan + 指针解引用 | ✅ Offsets.cpp |
-| **读/改 L4N 自身** | 同进程内存空间，逆向修改版 exe 后可 Hook 其函数 | ❌（未做，见 9.4） |
-| 控制台命令/cvar | `ICvar` 注册 | ✅ necola_* 命令 |
-| 自绘 UI | VGUI Surface（字体/矩形/文本） | ✅ MenuManager |
-| 文件/线程/网络 | Win32/CRT 全套 | ✅ 配置/日志/初始化线程 |
-| 派生 shader DLL | 投放 `bin/game_shader_generic_*.dll` | ❌（非插件通道，见 9.3） |
+因此当前部署模型应视为“随进程启动、随进程退出”，不要在运行时对 DLL 执行 `FreeLibrary`。
 
-**本项目已触达的实践天花板示例**：动画序列客户端重映射（服务器不知道本地扩充序列，全靠客户端 Hook 改写）+ 游戏内自绘菜单 + 输入绑定——这三样合起来已覆盖"外挂级"插件形态的典型能力面。
+## 十、仍待验证
 
-### 9.3 插件做不到 / 很难做到的事（硬约束）
+1. 修改版 `left4dead2.exe` 的插件枚举、工厂解析和接口版本校验实现。
+2. 四个回调的线程、顺序、调用次数、异常边界和实际模块覆盖范围。
+3. D3D 回调在原生 D3D9、外置 DXVK 和 `-vulkan` 路径下的对象类型与时序。
+4. `key_bind_acts` 对插件晚注册命令的实际接受行为。
+5. l4nscope、原生狙击 scope 与 Necola ADS 在不同 HUD/crosshair 配置下的组合结果。
+6. `-hide_neko` 时插件目录是否完全跳过，以及宿主是否存在任何显式卸载路径。
 
-| # | 约束 | 原因 | 影响 |
-|---|---|---|---|
-| 1 | **x86 32 位 only** | L4D2 是 32 位进程 | 插件必须 x86 编译（我们已对齐） |
-| 2 | **初始化时机极早** | `OnGameLaunch` 时引擎 DLL 全未加载 | 必须自建模块等待（条件变量+兜底轮询） |
-| 3 | **无崩溃隔离** | 插件与游戏同进程，SEH 异常直接崩游戏 | 必须 `__try/__except` + null 守卫（历史教训：ParticleSystemMgr 偏移崩溃） |
-| 4 | **无热重载** | 无 unload 回调，DLL 被进程锁定 | 改代码必须重启游戏；nekook 的资产热重载只覆盖资源不覆盖插件 |
-| 5 | **注册新引擎 shader 困难** | shader DLL 靠 `bin/game_shader_generic_*` 命名约定被 materialsystem 扫描，发生在插件回调前后不可控 | 插件做不了 l4nscope 级别的"模型+shader"组合功能，只能做序列/绘制层 |
-| 6 | **L4N 功能黑盒** | l4nscope/l4ns/后处理全编译在修改版 exe 内，无导出 | 想联动只能：(a) 逆向 exe（成本高）(b) 靠 cvar 间接交互（我们现状） |
-| 7 | **`-hide_neko` 全灭** | 插件由 L4N 加载，L4N 禁用则插件不加载 | 部署文档已注明依赖 |
-| 8 | **版本兼容无保障** | 接口版本恒 1 但引擎 pattern 会随 L4N 版本漂移 | 每次 L4N 大版本需回归测试 pattern |
-| 9 | **DllMain 限制** | loader lock 下不能做重活 | 正确姿势：DllMain 只置标志，重活丢线程（我们的 InitThreadFunc 模式，与官方示例一致） |
-
-### 9.4 "极限"结论
-
-1. **API 极限**：5 回调 + 3 元数据，零数据通道。L4N 对插件是"只通知、不服务"。
-2. **实践极限**：整个进程内存可读可写可 Hook——包括 L4N 自己。理论上插件能复刻 L4N 的**绝大多数**功能（heapsize 修复、buffer 扩容、HUD 接管都能用 Hook 实现），差距只在工程量和 pattern 维护成本。
-3. **不可逾越的边界**：引擎 shader 注册通道、L4N 未导出的内部功能、崩溃隔离、热重载。
-4. **生态现状**（readme:340 证据）：已有"第一人称腿插件""倒地爬行插件"存在，L4N 官方主动适配它们生成的实体；readme:383/995 官方点名"插件的动画(如ADS)"——**插件生态是 L4N 官方认知并兼容的既成事实**，我们不是孤例。
-
-### 9.5 突破极限的可行路径（如果未来要做）
-
-| 想做的事 | 路径 | 成本 |
-|---|---|---|
-| 联动 l4nscope | 逆向修改版 exe 中 scope 状态的判定/存储（cvar 或内存标志），插件读取后协调 ADS 状态机 | 中（需拿到 exe） |
-| 进 L4N 按键列表 | 已验证：`config.vdf key_bind_acts`（不校验命令来源） | 零（用户配置即可） |
-| 逐帧回调 | 已有：Hook Paint/FrameStageNotify | 零（已实现） |
-| 插件间通信 | 自建共享内存/命名管道，或约定 cvar 作信号量 | 低 |
-| 给 L4N 提功能需求 | 接口版本 1 多年未变，作者接受生态适配（见 340/383 行主动兼容） | 沟通成本 |
-
-## 十、仍未逆向的部分（诚实记录）
-
-1. **修改版 left4dead2.exe 本体**：不在 v2.43.0 增量包内（完整安装包才有）。插件加载循环、config.vdf 解析、按键列表注入、`l4nscope` 的 mod 适配判定等实现细节无法二进制级确认。如需深入：从游戏安装目录取该 exe（Steam 会校验 hash，删除后重新"验证完整性"即得原版可作 diff 基准）。
-2. **`l4nscope` 的适配格式**：readme 仅在"需要MOD适配"列表提及，包内未发现 l4nscope 的 QC/KeyValues 格式文档（可能随完整包或需询问作者）。当前只能确认其存在与版本（2.28.0）。
-3. **`game_shader_generic_neko.dll` 内部逻辑**：仅 3 个标准导出（CreateInterface/cvar/g_pCVar），是纯 shader DLL，未见插件加载痕迹；未做完整反汇编。
-4. **D3D 回调实际行为**：未实测（用户走 -vulkan/dxvk 路径）。
+补齐这些结论需要目标 L4N 版本的修改版 exe、带版本标识的运行日志和可重复测试矩阵；在此之前，
+文档应保留“待验证”标记，而不是把推断写成加载器事实。

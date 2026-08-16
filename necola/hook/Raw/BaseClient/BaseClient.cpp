@@ -81,12 +81,13 @@ int __fastcall BaseClient::IN_KeyEvent::Detour(void* ecx, void* edx, int eventco
 	return Table.Original<FN>(Index)(ecx, edx, eventcode, keynum, pszCurrentBinding);
 }
 
-void BaseClient::Init()
+bool BaseClient::Init()
 {
-	Table.Init(I::BaseClient);
+	if (!Table.Init(I::BaseClient, FrameStageNotify::Index + 1)) return false;
 
-	Table.Hook(&LevelInitPreEntity::Detour, LevelInitPreEntity::Index);
-	Table.Hook(&LevelInitPostEntity::Detour, LevelInitPostEntity::Index);
-	Table.Hook(&FrameStageNotify::Detour, FrameStageNotify::Index);
-	Table.Hook(&IN_KeyEvent::Detour, IN_KeyEvent::Index);
+	bool ok = Table.Hook(&LevelInitPreEntity::Detour, LevelInitPreEntity::Index);
+	ok = Table.Hook(&LevelInitPostEntity::Detour, LevelInitPostEntity::Index) && ok;
+	ok = Table.Hook(&FrameStageNotify::Detour, FrameStageNotify::Index) && ok;
+	ok = Table.Hook(&IN_KeyEvent::Detour, IN_KeyEvent::Index) && ok;
+	return ok;
 }

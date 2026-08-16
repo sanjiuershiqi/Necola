@@ -51,7 +51,7 @@ namespace Hooks
 			int __fastcall Detour(void* ecx, void* edx, int eventcode, int keynum, const char* pszCurrentBinding);
 		}
 
-		void Init();
+		bool Init();
 	}
 
 	

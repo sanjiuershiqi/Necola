@@ -1,313 +1,213 @@
-# 架构文档
+# Necola 架构文档
 
-> 本文档描述 Necola 的代码架构、模块依赖关系、初始化流程、Source 引擎接口使用方式。
+> 本文描述当前源码实际行为。L4N 宿主内部的未公开实现见
+> [L4N_PLUGIN_RESEARCH.md](L4N_PLUGIN_RESEARCH.md)，不要把推断当成接口契约。
 
-## 一、整体架构
+## 一、系统边界
 
-```
-┌─────────────────────────────────────────────────────┐
-│  left4dead2.exe (游戏进程)                          │
-│  ┌───────────────────────────────────────────────┐  │
-│  │ L4N 平台 (修改版 left4dead2.exe,非注入)      │  │
-│  │  - 扫描 neko/plugins/*.dll                    │  │
-│  │  - 调用 GetL4NPluginInstance                  │  │
-│  │  - 回调 OnModuleLoaded / OnGameLaunch         │  │
-│  └───────────────────┬───────────────────────────┘  │
-│                      │ LoadLibraryExA + GetProcAddress │
-│  ┌───────────────────▼───────────────────────────┐  │
-│  │ necola_ads.dll (本插件)                       │  │
-│  │  ┌─────────────┐  ┌──────────────────────┐    │  │
-│  │  │ dllmain.cpp │  │ hook/Entry.cpp       │    │  │
-│  │  │ L4N入口     ├──▶│ 初始化主流程         │    │  │
-│  │  │ 模块等待    │  └──────────┬───────────┘    │  │
-│  │  └─────────────┘             │                │  │
-│  │  ┌───────────────────────────▼────────────┐  │  │
-│  │  │ Feature/ (功能层)                       │  │  │
-│  │  │  ├ AdsSupport/   ADS状态机+动画重映射   │  │  │
-│  │  │  ├ SequenceModify/ 序列修正(ADS底层)    │  │  │
-│  │  │  ├ MenuManager/   游戏内菜单UI          │  │  │
-│  │  │  ├ CommandManager/ 控制台命令           │  │  │
-│  │  │  ├ InputManager/  输入处理              │  │  │
-│  │  │  └ BodygroupFix/  bodygroup修复         │  │  │
-│  │  └────────────────────────────────────────┘  │  │
-│  │  ┌────────────────────────────────────────┐  │  │
-│  │  │ Raw/ (Hook层,按被Hook类组织)            │  │  │
-│  │  │  ├ BaseClient/   IBaseClientDLL钩子     │  │  │
-│  │  │  ├ BaseAnimating/ 动画序列钩子         │  │  │
-│  │  │  ├ BaseCombatWeapon/ 武器动画钩子       │  │  │
-│  │  │  ├ EngineVGui/   Paint绘制钩子          │  │  │
-│  │  │  └ GameEventManager/ 事件钩子           │  │  │
-│  │  └────────────────────────────────────────┘  │  │
-│  │  ┌────────────────────────────────────────┐  │  │
-│  │  │ sdk/ (引擎SDK)                          │  │  │
-│  │  │  ├ l4d2/interfaces/ 接口抽象类          │  │  │
-│  │  │  ├ l4d2/entities/ 实体类               │  │  │
-│  │  │  ├ utils/ Hook/Pattern/Interface工具    │  │  │
-│  │  │  └ Offsets.cpp 特征码扫描              │  │  │
-│  │  └────────────────────────────────────────┘  │  │
-│  └───────────────────────────────────────────────┘  │
-│  ┌───────────────────────────────────────────────┐  │
-│  │ Source 引擎模块 (L4N加载)                    │  │
-│  │  client.dll, engine.dll, vgui2.dll, ...      │  │
-│  └───────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
+Necola 是一个 x86 原生 DLL。官方 L4N SDK 示例把插件放在游戏根目录的
+`bin/neko/plugins/`，导出 `GetL4NPluginInstance` 并返回 `IL4NPlugin*`。
+
+```text
+L4N 宿主
+  -> GetL4NPluginInstance
+  -> OnGameLaunch / OnModuleLoaded / D3D callbacks
+       |
+       v
+necola/dllmain.cpp
+  -> 单次初始化线程
+  -> 模块轮询
+  -> hook/Entry.cpp
+       |
+       +-> sdk/: Source 接口、pattern、netvar
+       +-> hook/Raw/: 原始 Hook 点
+       +-> hook/Feature/: ADS、序列、菜单、输入、bodygroup、命令
 ```
 
-## 二、模块依赖关系
+L4N 提供加载入口和生命周期回调。Necola 的主要运行逻辑自行使用 Source `CreateInterface`、
+MinHook、RecvProp proxy 和窗口过程替换实现；同时通过 `ICvar` 读取少量 `l4n_*` cvar 进行协调。
 
-### 2.1 依赖方向（上层依赖下层）
-```
-dllmain.cpp (L4N入口)
-    │
-    ▼
-Entry.cpp (初始化编排)
-    │
-    ├─► sdk/ (接口获取、偏移扫描)
-    │
-    ├─► Feature/ (功能模块)
-    │       │
-    │       ├─► AdsSupport 依赖 SequenceModify
-    │       │             依赖 sdk (实体、接口)
-    │       │
-    │       ├─► SequenceModify 依赖 sdk (NetVar)
-    │       │
-    │       ├─► MenuManager 依赖 AdsSupport (配置项)
-    │       │                依赖 FeatureConfigManager
-    │       │
-    │       └─► CommandManager (无依赖,纯注册)
-    │
-    └─► Raw/ (Hook点)
-            │
-            └─► 调用 Feature/ 的逻辑
-```
+两个 D3D 回调目前为空。Necola 不通过 D3D 绘制菜单，也没有自定义 shader 渲染路径。
 
-### 2.2 关键依赖说明
+## 二、入口与初始化
 
-**AdsSupport ↔ SequenceModify**：
-- `AdsSupport` 是上层，实现 ADS 状态机和开镜动画选择
-- `SequenceModify` 是底层，钩取网络序列属性（`m_nLayerSequence`、`m_nAnimationParity`），供 ADS 层拦截/重映射
-- ADS 依赖 SequenceModify 的 hook 已安装才能工作
+### 2.1 插件入口
 
-**MenuManager → AdsSupport**：
-- 菜单的配置项（开关、武器选择）直接读写 `AdsSupport` 的配置变量（`G::Vars.ads*`）
-- 菜单切换"启用ADS"开关会调用 `F::AdsMgr.Init()` 或 `ForceExitADS()`
+[`necola/dllmain.cpp`](../necola/dllmain.cpp) 中：
 
-**Raw/ → Feature/**：
-- `Raw/BaseAnimating` 的 `SelectWeightedSequence` 钩子调用 `AdsSupport` 的重映射逻辑
-- `Raw/BaseCombatWeapon` 的 `SendWeaponAnim` 钩子调用 `AdsSupport` 的动画拦截
-- `Raw/EngineVGui` 的 `Paint` 钩子调用 `MenuManager.Draw()` 和准星隐藏逻辑
+- `GetL4NPluginInstance()` 返回函数内静态 `NecolaL4NPlugin`。
+- `GetInterfaceVersion()` 返回 1。
+- 名称为 `Necola-ADS`，版本字符串来自 `sFixVer`。
+- `OnModuleLoaded()` 把模块名/句柄存入 `L4N::Env`。
+- `OnGameLaunch()` 和 `OnModuleLoaded()` 共用一个原子启动标志，先到者尝试创建初始化线程；创建失败会复位标志，允许后续回调重试。
 
-## 三、初始化流程
+这里没有“只等 client 回调”或“等待 serverbrowser”的分支。
 
-### 3.1 完整时序
+### 2.2 模块等待
 
-```
-游戏启动
-  │
-  ▼
-L4N 加载 necola_ads.dll
-  │
-  ▼ DllMain(DLL_PROCESS_ATTACH)
-  │   - 无实质操作（日志可选）
-  │
-  ▼ GetL4NPluginInstance()
-  │   - 返回全局 NecolaL4NPlugin 实例
-  │
-  ▼ OnGameLaunch() 或 OnModuleLoaded() (先到者)
-  │   - std::call_once 保证只触发一次
-  │   - CreateThread(InitThreadFunc)
-  │
-  ▼ InitThreadFunc
-  │   │
-  │   ▼ 等待模块就绪
-  │   │   - 条件变量等待 7 个关键模块
-  │   │   - L4N 回调 notify 唤醒
-  │   │   - 100ms 兜底轮询
-  │   │
-  │   ▼ Hook_necola()
-  │       │
-  │       ▼ LoadIni() — 加载 kpatch.ini
-  │       │
-  │       ▼ CGlobal_ModuleEntry::Load()  ← 核心
-  │           │
-  │           ▼ Step 1: U::Offsets.Init()
-  │           │   - 特征码扫描 client.dll/datacache.dll
-  │           │   - 定位 ClientMode、GlobalVars 等指针
-  │           │
-  │           ▼ Step 2: G::Vars.Load()
-  │           │   - 加载默认配置
-  │           │
-  │           ▼ Step 3: CreateInterface 获取引擎接口
-  │           │   - 16 个接口（client/engine/datacache/...）
-  │           │
-  │           ▼ Step 3.6: 解引用偏移指针
-  │           │   - ClientMode = **(offset)  (判空)
-  │           │   - GlobalVars = **(offset)  (判空)
-  │           │   - ParticleSystemMgr = **(offset)  (判空)
-  │           │
-  │           ▼ Step 4: G::InputManagerI.Init()
-  │           │
-  │           ▼ Step 5: G::Hooks.Init()
-  │           │   - 安装所有 MinHook 钩子
-  │           │
-  │           ▼ Step 6: 加载持久化配置
-  │           │   - FeatureConfig.json → AdsSupport.LoadConfig
-  │           │
-  │           ▼ Step 7: F::SModify.RecvPropDataHook()
-  │           │   - 安装网络属性代理钩子
-  │           │
-  │           ▼ Step 8: AdsSupport.Init() (若启用)
-  │           │
-  │           ▼ Step 9: 菜单字体+配置同步
-  │           │   - InitMenuFonts()
-  │           │   - InitConfigSwitches()
-  │           │
-  │           ▼ Step 10: 注册控制台命令
-  │           │   - necola_menu, necola_ads, ...
-  │           │
-  │           ▼ Step 11: KeyBinds 自动绑定
-  │               - 读 FeatureConfig.json 的 KeyBinds
-  │               - 执行 bind 命令
-  │
-  ▼ 初始化完成，插件进入运行态
-  │
-  ▼ 游戏运行中（Hook 被触发）
-  │   - Paint → 菜单绘制 + 准星隐藏
-  │   - SelectWeightedSequence → ADS 动画重映射
-  │   - SendWeaponAnim → ADS 动画拦截
-  │   - RecvProxySequence → 序列修正
-  │
-  ▼ 游戏退出
-      - DllMain(DLL_PROCESS_DETACH)
-      - Undo_necola: G::Hooks.undo() + InputManagerI.undo()
+初始化线程每 1 秒调用 `GetModuleHandleA` 检查以下模块，最多循环 120 次：
+
+```text
+client.dll
+engine.dll
+vgui2.dll
+datacache.dll
+vguimatsurface.dll
+inputsystem.dll
+filesystem_stdio.dll
+vstdlib.dll
 ```
 
-### 3.2 SEH 安全网
-`CGlobal_ModuleEntry::Load()` 用 `__try/__except` 包裹整个初始化体：
+当前实现没有条件变量或回调唤醒。等待超时会记录错误并终止线程，不会进入 `Hook_necola()`。
 
-```cpp
-void CGlobal_ModuleEntry::Load() {
-    __try {
-        RunLoadBody();
-    } __except(EXCEPTION_EXECUTE_HANDLER) {
-        // 捕获 SEH 异常（如访问违规），避免进程静默终止
-    }
-}
-```
+`L4N::Env` 会缓存回调句柄，不过 `U::Interface` 和 `U::Pattern` 当前仍直接调用
+`GetModuleHandleA`，没有使用该缓存。
 
-**原因**：C++ 的 `catch(...)` 配合 `/EHsc` **无法捕获** SEH 异常（如空指针解引用的 0xC0000005）。不用 `__try/__except` 的话，一个失败的偏移解引用会让整个游戏进程崩溃，且无日志。
+### 2.3 初始化步骤
 
-## 四、Source 引擎接口使用
+`CGlobal_ModuleEntry::Load()` 用 SEH 包住 `RunLoadBody()`，实际顺序如下：
 
-### 4.1 接口获取
-通过 `CreateInterface` 工厂函数，封装在 [sdk/Interface.cpp](necola/sdk/Interface.cpp)：
+1. `U::Offsets.Init()` 扫描硬编码字节 pattern。
+2. `G::Vars.Load()` 从相对路径 `kpatch.ini` 读取 `[AdsSupport] enableAdsSupport`。
+3. 通过 `CreateInterface` 获取 17 个接口。
+4. 集中验证当前功能必需的接口和 pattern；缺失时终止。
+5. `L4N::Env.Init()` 探测并缓存相关 `l4n_*` cvar。
+6. 只解引用当前运行路径必需的 GlobalVars 指针，并验证结果。
+7. 替换 Valve 窗口过程，收集键鼠消息。
+8. 初始化 MinHook 并安装 Raw hook，检查每一步返回值。
+9. 从 `necola\FeatureConfig.json` 读取 ADS 和序列配置。
+10. 找齐并替换 3 个 `CBaseViewModel` RecvProp proxy。
+11. 按配置初始化 ADS，初始化菜单字体和菜单开关。
+12. 注册 5 个 `necola_*` 控制台命令。
 
-```cpp
-I::EngineClient = U::Interface.Get<IVEngineClient*>("engine.dll", "VEngineClient013");
-```
+不存在 `FeatureConfig.json/KeyBinds` 自动读取或自动 `bind`。
 
-内部流程：
-1. `GetModuleHandleA("engine.dll")` 获取模块基址
-2. `GetProcAddress(hModule, "CreateInterface")` 获取工厂函数
-3. 调用 `CreateInterface("VEngineClient013", &returnCode)` 返回接口指针
+初始化返回失败或触发 SEH 后会恢复已安装的 RecvProp proxy、MinHook 和窗口过程。控制台命令仍
+没有注销机制，因此清理尚不是完全事务性的。
 
-### 4.2 关键接口用途
+## 三、Source 接口
 
-| 接口 | 用途 | 使用场景 |
+当前获取 17 个接口：
+
+| 模块 | 接口 |
+|---|---|
+| `client.dll` | `IBaseClientDLL`、`IClientEntityList`、`IPrediction` |
+| `engine.dll` | `IVModelInfo`、`IGameEventManager2`、`IEngineVGui`、`IVEngineClient`、`IEngineSound`、`INetworkStringTableContainer`、`IEngineTrace` |
+| `datacache.dll` | `IMDLCache` |
+| `filesystem_stdio.dll` | `IFileSystem` |
+| `vgui2.dll` | `IVGuiPanel`、`IVGuiSurface` |
+| `vguimatsurface.dll` | `IMatSystemSurface` |
+| `inputsystem.dll` | `IInputSystem` |
+| `vstdlib.dll` | `ICvar` |
+
+接口名称和版本均为硬编码。当前代码会在 Hook 安装前验证 ADS、菜单和活动 Hook 路径必需的接口；
+其余已获取但当前未使用的接口不会阻止启动，`ICvar` 缺失会降级 L4N 协调与直接准星控制。
+
+Pattern scan 用于定位非导出函数和全局指针。Pattern 失败表示当前二进制与签名不匹配，原因可能
+是游戏、L4N 或其他二进制版本变化，不能仅凭失败确定是哪一方修改了 DLL。
+
+## 四、Hook 拓扑
+
+`G::Hooks.Init()` 注册 5 个 Raw hook 组，实际包含 11 个 MinHook detour：
+
+| 组 | Hook 点 | 用途 |
 |---|---|---|
-| `IBaseClientDLL` | 客户端主接口 | LevelInit/ClientActive hook |
-| `IVEngineClient` | 引擎客户端 | `IsInGame()`、`ClientCmd()`、`GetLocalPlayer()` |
-| `IClientEntityList` | 实体列表 | 获取本地玩家、武器实体 |
-| `IEngineVGui` | VGUI 引擎 | Paint hook（菜单绘制） |
-| `IMatSystemSurface` | 表面绘制 | 菜单矩形/文本/字体 |
-| `IVModelInfo` | 模型信息 | 动画序列查找 |
-| `IMDLCache` | 模型缓存 | GetStudioHdr |
-| `CGlobalVarsBase` | 全局变量 | `curtime`（菜单闪烁计时） |
-| `ClientMode` | 客户端模式 | ViewRender 等 |
+| BaseClient | `LevelInitPreEntity`、`LevelInitPostEntity`、`FrameStageNotify`、`IN_KeyEvent` | 帧更新、菜单按键、ADS 输入 |
+| EngineVGui | `Paint` | 准星控制和菜单绘制 |
+| BaseCombatWeapon | `SendWeaponAnim`、`SetIdealActivity` | 武器动画拦截 |
+| BaseAnimating | `RecvProxySequenceViewModel`、`SelectWeightedSequence`、`FireEvent` | viewmodel 序列与动画事件 |
+| GameEventManager | `FireEventClient` | 死亡、地图等状态清理 |
 
-### 4.3 特征码扫描的指针
-部分关键数据无接口暴露，需 pattern scan 定位：
+`SequenceModify::RecvPropDataHook()` 另外替换 3 个网络属性代理：
 
-| 偏移 | Pattern | 解引用得到 |
-|---|---|---|
-| `m_dwClientMode` | `89 04 B5 ? ? ? ? E8` | `ClientMode*` |
-| `m_dwGlobalVars` | `A1 ? ? ? ? D9 40 0C 51 D9 1C 24 57` | `CGlobalVarsBase*` |
-| `m_dwCParticleSystemMgr` | `0C 8B 0D ? ? ? ? 52 50 E8 82 5F` | `ParticleSystemMgr*`（L4N 上可能失效） |
+- `m_nLayerSequence`
+- `m_nAnimationParity`
+- `m_nNewSequenceParity`
 
-解引用模式：`I::ClientMode = **reinterpret_cast<void***>(offset)`（双重间接：pattern 指向存放指针的地址，再取值得到实际对象）。
+这些 proxy 不属于 MinHook。`m_dwRecvProxySequence` 虽然会被 pattern 定位，但当前没有安装为
+detour，文档和排障时不要把它列为已启用 Hook。
 
-## 五、Hook 机制
+当前 Hook 初始化检查 MinHook 初始化、11 个 Hook 创建及统一启用结果。`CTable` 使用调用方给出的
+最小表大小，不再扫描未知长度虚表；任一步失败都会禁用并反初始化 MinHook。
 
-### 5.1 MinHook 封装
-见 [sdk/utils/Hook.h](necola/sdk/utils/Hook.h)，三个类：
+## 五、ADS 状态与数据流
 
-**CFunction**：钩普通函数
-```cpp
-Hook::CFunction func;
-func.Init(pTarget, pDetour);  // 创建钩子
-auto original = func.Original<FuncType>();  // 调用原函数
+ADS 有 5 个深度状态：
+
+```text
+ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 ```
 
-**CTable**：钩虚函数表项
-```cpp
-Hook::CTable table;
-table.Init(pVTable);  // 探测表大小
-table.Hook(pDetour, index);  // 钩第 index 个虚函数
-auto original = table.Original<FuncType>(index);
+缺失动画的层级会被跳过。`m_isMixed` 是可与任一深度状态组合的独立布尔状态，不是第三个互斥
+枚举值。系统还保存上一组 `(AdsState, Mixed)` 用于回退。
+
+主要运行路径：
+
+```text
+控制台命令 / +zoom / +use
+  -> 校验连接、玩家、武器和攻击状态
+  -> 扫描并缓存当前 viewmodel 的 activity/sequence
+  -> 选择进入、退出或层级切换动画
+  -> 更新 AdsState/Mixed 和 0.4 秒软件锁
+  -> FRAME_RENDER_START 持续维护 m_nSequence
 ```
 
-**CVMTable**：虚函数表替换（整体复制表，修改副本）
-- 比 CTable 更安全（不直接改原表），但开销略大
+`SelectWeightedSequence`、武器动画 Hook 和 RecvProp proxy 会把普通 activity/sequence 映射到
+当前 ADS/MIXED 对应序列。武器变化、双持变化、玩家死亡和部分游戏事件会静默复位状态。
 
-### 5.2 Hook 注册
-见 [hook/Hooks.cpp](necola/hook/Hooks.cpp)。所有 hook 在 `G::Hooks.Init()` 时统一安装，在 `undo()` 时统一卸载。
+代码中的 GPU fence、ray tracing、deferred pass 等注释不对应真实 GPU 资源或 D3D 调用。实际
+行为是 Source viewmodel 动画、序列字段和 bodygroup 操作。
 
-### 5.3 典型 Hook 示例（EngineVGui::Paint）
-[necola/hook/Raw/EngineVGui/EngineVGui.cpp](necola/hook/Raw/EngineVGui/EngineVGui.cpp)：
+## 六、菜单、准星和 L4N 协调
 
-```cpp
-void __fastcall EngineVGui::Paint::Detour(void* ecx, void* edx, int mode) {
-    Table.Original<FN>(Index)(ecx, edx, mode);  // 先调用原函数
+`EngineVGui::Paint` 先调用原函数，然后在 `PAINT_INGAMEPANELS`：
 
-    if (mode == PAINT_INGAMEPANELS) {
-        // 1. ADS 准星隐藏逻辑
-        if (G::Vars.enableAdsSupport && G::Vars.adsHideCrosshairMode > 0) {
-            // 状态切换时执行 crosshair 0/1
-        }
-        // 2. 菜单绘制
-        F::MenuMgr.Draw();
-    }
-}
-```
+1. 根据 ADS 配置和当前武器判断是否隐藏准星。
+2. 检查 `L4N::Env.HudVisible()`，L4N 隐藏 HUD 时不与其争用准星。
+3. 优先直接写 `crosshair` 根 ConVar，保存并恢复用户原值。
+4. 只有找不到 ConVar 时才回退到 `ClientCmd("crosshair 0/1")`。
+5. 绘制 Necola VGUI 菜单。
 
-## 六、配置系统
+`L4N::Env` 当前读取：
 
-### 6.1 双配置文件
-- **`kpatch.ini`**（INI格式）：旧版兼容，[System] 段含 `cmdline` 等
-- **`neko/FeatureConfig.json`**（JSON）：主配置，ADS/序列修正/按键绑定
+- `l4n_game_hud_visible`
+- `l4n_patch_hud_scope`
+- `l4n_vm_sway`
+- `l4n_vm_sway_ignore_helpinghand`
 
-### 6.2 FeatureConfigManager
-见 [sdk/utils/FeatureConfigManager.h](necola/sdk/utils/FeatureConfigManager.h)，提供 `LoadConfig()` / `SaveConfig(doc)` 读写 JSON。
+其中只有 HUD 可见性直接参与每帧准星门控；其他值主要用于一次性冲突诊断日志。
 
-### 6.3 配置加载流程
-1. `Entry.cpp` Step 6 调用 `AdsMgr.LoadConfig(doc)` 读 ADS 配置到 `G::Vars`
-2. 菜单切换开关时，更新 `G::Vars` 并 `SaveConfig(doc)` 写回 JSON
-3. `KeyBinds` 数组在初始化末尾读取，执行 `bind` 命令
+## 七、配置与日志
 
-## 七、日志系统
+| 文件/变量 | 当前实际用途 |
+|---|---|
+| `kpatch.ini` | 相对工作目录读取；先读取 `[AdsSupport] enableAdsSupport`，仓库模板没有该段 |
+| `[System] debug` | 会被解析，但不控制当前调试开关 |
+| `necola\FeatureConfig.json` | 相对工作目录读取/写入，保存 ADS 和 SequenceModify 配置 |
+| `NECOLA_ADS_DEBUG` | 只要环境变量存在，就启用控制台和 spdlog 详细输出 |
+| `L4N-Necola-ADS-diag.log` | 位于宿主 exe 目录；关键里程碑始终写入 |
 
-### 7.1 spdlog 配置
-见 [dllmain.cpp](necola/dllmain.cpp) `InitSpdlog()`：
-- 日志文件：`<left4dead2>/L4N-Necola-ADS.log`
-- 级别：`info`
-- flush 策略：`flush_on(warn)`（warn 及以上立即刷盘）
+JSON 写入目前直接截断目标文件，异常被静默吞掉；路径依赖进程工作目录，而不是 DLL 目录。
+若 JSON 包含 `AdsSupport`，后执行的 `AdsMgr.LoadConfig()` 会覆盖 INI 读入的 ADS 开关，因此已有
+JSON 配置时 INI 通常不是最终权威值。
 
-### 7.2 日志开关
-两个**功能日志开关**（默认关，开启后在动画事件级打日志）：
-- `G::Vars.adsLog`：ADS 相关日志
-- `G::Vars.sequenceLog`：序列修正日志
+## 八、退出与卸载
 
-**警告**：这两个开关开着时，会在高频动画钩子（`SelectWeightedSequence`、`RecvProxySequence`）里同步写日志，可能导致卡顿。排查问题时临时开启，确认后关闭。
+`DLL_PROCESS_DETACH` 当前直接调用 `ModuleEntry.undo()`：
 
-### 7.3 历史教训
-曾有版本用 `flush_on(trace)` 级别 + 每帧打日志，导致明显卡顿。现版本已改为 `info` + `flush_on(warn)`，且动画级日志门控由开关控制。
+- 恢复被隐藏的准星。
+- 禁用全部 MinHook 并反初始化 MinHook。
+- 恢复原窗口过程。
+
+它会恢复 3 个 RecvProp proxy，但没有注销/释放控制台命令，也没有等待可能仍在运行的初始化线程。
+此外这些清理发生在 Windows loader lock 下。因此当前只适合进程退出，不支持运行时安全
+`FreeLibrary` 或热重载。
+
+## 九、主要维护边界
+
+1. 对所有必需模块、接口、pattern 和 netvar 做统一启动验证，失败时停止并回滚。
+2. 把 Hook 安装改为检查返回值的事务流程。
+3. 为初始化线程增加取消、句柄保留和 join。
+4. 增加显式 shutdown，并恢复 RecvProp、命令和 ADS/bodygroup 状态。
+5. 把配置路径固定到明确目录，使用临时文件加原子替换保存。
+6. 清理误导性的渲染注释，拆出可测试的 ADS 状态转换和 activity 映射。

@@ -9,7 +9,7 @@
 class CGlobal_ModuleEntry
 {
 public:
-	void Load();
+	bool Load();
 	void undo();
 };
 

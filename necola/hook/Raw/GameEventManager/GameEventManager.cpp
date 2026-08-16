@@ -57,8 +57,8 @@ bool __fastcall GameEventManager::FireEventClient::Detour(void* ecx, void* edx, 
 	return Table.Original<FN>(Index)(ecx, edx, event);
 }
 
-void GameEventManager::Init()
+bool GameEventManager::Init()
 {
-	Table.Init(I::GameEventManager);
-	Table.Hook(&FireEventClient::Detour, FireEventClient::Index);
+	return Table.Init(I::GameEventManager, FireEventClient::Index + 1)
+		&& Table.Hook(&FireEventClient::Detour, FireEventClient::Index);
 }

@@ -6,6 +6,7 @@ namespace F {
 	
 	public:
 		bool RecvPropDataHook();
+		void RecvPropDataUnhook();
 
 		// emit shadow depth pass for dynamic lights
 		// recalculate near clip plane for depth precision

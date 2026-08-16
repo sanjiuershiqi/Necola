@@ -4,6 +4,7 @@
 #include <time.h>
 #include <spdlog/spdlog.h>
 #include <windows.h>
+#include <exception>
 
 #include "./Feature/SequenceModify/SequenceModify.h"
 #include "./Feature/CommandManager/CommandManager.h"
@@ -44,17 +45,53 @@ void ELog(const char* msg) {
 // SEH translator: convert access-violation etc. into a logged message so
 // we can see WHERE it crashes instead of a silent process termination.
 // (C++ catch(...) with /EHsc does NOT catch SEH exceptions.)
-static void RunLoadBody();  // forward
+static bool RunLoadBody();  // forward
 
-void CGlobal_ModuleEntry::Load()
+static bool RunLoadBodyWithCppExceptionGuard() {
+	try {
+		return RunLoadBody();
+	} catch (const std::exception& exception) {
+		char buf[512];
+		_snprintf_s(buf, sizeof(buf), _TRUNCATE,
+			"!!! C++ exception in ModuleEntry::Load: %s", exception.what());
+		ELog(buf);
+	} catch (...) {
+		ELog("!!! unknown C++ exception in ModuleEntry::Load");
+	}
+	return false;
+}
+
+struct NamedRequirement {
+	const char* name;
+	const void* value;
+};
+
+template <size_t N>
+bool ValidateRequirements(const char* category, const NamedRequirement (&requirements)[N]) {
+	bool valid = true;
+	for (const auto& requirement : requirements) {
+		if (requirement.value) continue;
+		char buf[256];
+		_snprintf_s(buf, sizeof(buf), _TRUNCATE,
+			"ERROR: missing required %s: %s", category, requirement.name);
+		ELog(buf);
+		valid = false;
+	}
+	return valid;
+}
+
+bool CGlobal_ModuleEntry::Load()
 {
 	ELog("=== CGlobal_ModuleEntry::Load entered ===");
+	bool success = false;
 
 	// Wrap the entire body in SEH so an access violation logs its address
 	// instead of killing the process silently.
 	__try {
-		RunLoadBody();
-		ELog("=== CGlobal_ModuleEntry::Load body completed OK ===");
+		success = RunLoadBodyWithCppExceptionGuard();
+		ELog(success
+			? "=== CGlobal_ModuleEntry::Load body completed OK ==="
+			: "=== CGlobal_ModuleEntry::Load aborted ===");
 	} __except(EXCEPTION_EXECUTE_HANDLER) {
 		char buf[256];
 		_snprintf_s(buf, sizeof(buf), _TRUNCATE,
@@ -62,9 +99,14 @@ void CGlobal_ModuleEntry::Load()
 			GetExceptionCode());
 		ELog(buf);
 	}
+	if (!success) {
+		ELog("rolling back partial initialization");
+		undo();
+	}
+	return success;
 }
 
-static void RunLoadBody()
+static bool RunLoadBody()
 {
 	ELog("Step 1: U::Offsets.Init()");
 	U::Offsets.Init();
@@ -117,6 +159,31 @@ static void RunLoadBody()
 			(void*)I::Cvars);
 		ELog(buf);
 	}
+	const NamedRequirement requiredInterfaces[] = {
+		{"IBaseClientDLL", I::BaseClient},
+		{"IClientEntityList", I::ClientEntityList},
+		{"IVModelInfo", I::ModelInfo},
+		{"IGameEventManager2", I::GameEventManager},
+		{"IEngineVGui", I::EngineVGui},
+		{"IVEngineClient", I::EngineClient},
+		{"IMatSystemSurface", I::MatSystemSurface},
+	};
+	if (!ValidateRequirements("interface", requiredInterfaces)) return false;
+	if (!I::Cvars) ELog("WARN: ICvar unavailable; L4N coordination and direct crosshair control disabled");
+
+	const NamedRequirement requiredOffsets[] = {
+		{"m_dwGlobalVars", reinterpret_cast<void*>(U::Offsets.m_dwGlobalVars)},
+		{"m_dwStaticConCommand", reinterpret_cast<void*>(U::Offsets.m_dwStaticConCommand)},
+		{"m_dwSendWeaponAnim", reinterpret_cast<void*>(U::Offsets.m_dwSendWeaponAnim)},
+		{"m_dwSetIdealActivity", reinterpret_cast<void*>(U::Offsets.m_dwSetIdealActivity)},
+		{"m_dwRecvProxySequenceViewModel", reinterpret_cast<void*>(U::Offsets.m_dwRecvProxySequenceViewModel)},
+		{"m_dwSelectWeightedSequence", reinterpret_cast<void*>(U::Offsets.m_dwSelectWeightedSequence)},
+		{"m_dwFireEvent", reinterpret_cast<void*>(U::Offsets.m_dwFireEvent)},
+		{"m_dwGetSequenceActivity", reinterpret_cast<void*>(U::Offsets.m_dwGetSequenceActivity)},
+		{"m_dwFindBodygroupByName", reinterpret_cast<void*>(U::Offsets.m_dwFindBodygroupByName)},
+		{"m_dwSetBodygroup", reinterpret_cast<void*>(U::Offsets.m_dwSetBodygroup)},
+	};
+	if (!ValidateRequirements("offset", requiredOffsets)) return false;
 
 	// L4N environment awareness: detect the platform, cache the coordinated
 	// l4n_* cvars and log a one-shot conflict report (l4n_patch_hud_scope /
@@ -133,28 +200,11 @@ static void RunLoadBody()
 			(void*)U::Offsets.m_dwCParticleSystemMgr);
 		ELog(buf);
 	}
-	ELog("Step 3.6: dereferencing offsets for ClientMode/GlobalVars/ParticleSystemMgr");
-	{
-		// Guard each dereference against null offsets — pattern scans can fail
-		// (esp. m_dwCParticleSystemMgr on L4N-modified client.dll), and a null
-		// deref would SEH-skip Steps 4-10 (incl. command registration) →
-		// "commands don't work". ParticleSystemMgr is unused by ADS-only build,
-		// so a null there is safe; ClientMode/GlobalVars are required by ADS.
-		if (U::Offsets.m_dwClientMode) {
-			I::ClientMode = **reinterpret_cast<void***>(U::Offsets.m_dwClientMode);
-		} else {
-			ELog("  WARN: m_dwClientMode is NULL — ADS will be limited");
-		}
-		if (U::Offsets.m_dwGlobalVars) {
-			I::GlobalVars = **reinterpret_cast<CGlobalVarsBase***>(U::Offsets.m_dwGlobalVars);
-		} else {
-			ELog("  WARN: m_dwGlobalVars is NULL — ADS will be limited");
-		}
-		if (U::Offsets.m_dwCParticleSystemMgr) {
-			I::ParticleSystemMgr = **reinterpret_cast<void***>(U::Offsets.m_dwCParticleSystemMgr);
-		} else {
-			ELog("  WARN: m_dwCParticleSystemMgr is NULL (pattern scan failed) — ParticleSystemMgr unavailable, unused by ADS");
-		}
+	ELog("Step 3.6: dereferencing required GlobalVars offset");
+	I::GlobalVars = **reinterpret_cast<CGlobalVarsBase***>(U::Offsets.m_dwGlobalVars);
+	if (!I::GlobalVars) {
+		ELog("ERROR: m_dwGlobalVars resolved to a null pointer");
+		return false;
 	}
 	ELog("Step 3 done");
 
@@ -166,7 +216,10 @@ static void RunLoadBody()
 	ELog("Step 4 done");
 
 	ELog("Step 5: G::Hooks.Init()");
-	G::Hooks.Init();
+	if (!G::Hooks.Init()) {
+		ELog("ERROR: one or more MinHook detours could not be installed");
+		return false;
+	}
 	ELog("Step 5 done");
 
 	// Load persistent ADS/SequenceModify configuration
@@ -184,8 +237,9 @@ static void RunLoadBody()
 
 	// Install sequence property hooks (required by ADS layer sequence restoration)
 	ELog("Step 7: F::SModify.RecvPropDataHook()");
-	{
-		F::SModify.RecvPropDataHook();
+	if (!F::SModify.RecvPropDataHook()) {
+		ELog("ERROR: required CBaseViewModel RecvProp proxies were not installed");
+		return false;
 	}
 	ELog("Step 7 done");
 
@@ -229,12 +283,15 @@ static void RunLoadBody()
 		}, "go back to previous ADS state");
 	}
 	ELog("Step 10 done");
+	return true;
 }
 
 void CGlobal_ModuleEntry::undo()
 {
 	ELog("undo: restore crosshair if forced off");
 	Hooks::EngineVGui::RestoreCrosshairForUnload();
+	ELog("undo: restore RecvProp proxies");
+	F::SModify.RecvPropDataUnhook();
 	ELog("undo: G::Hooks.undo()");
 	G::Hooks.undo();
 	ELog("undo: G::InputManagerI.undo()");

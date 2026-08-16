@@ -172,13 +172,14 @@ bool __fastcall BaseCombatWeapon::SetIdealActivity::Detour(C_BaseCombatWeapon* p
 }
 
 
-void BaseCombatWeapon::Init()
+bool BaseCombatWeapon::Init()
 {
+	bool ok = false;
 	{
 		using namespace SendWeaponAnim;
 		const FN pfSendWeaponAnim = reinterpret_cast<FN>(U::Offsets.m_dwSendWeaponAnim);
 		if( pfSendWeaponAnim ) {
-			Func.Init(pfSendWeaponAnim, &Detour);
+			ok = Func.Init(pfSendWeaponAnim, &Detour);
 		}
 	}
 
@@ -186,7 +187,8 @@ void BaseCombatWeapon::Init()
 		using namespace SetIdealActivity;
 		const FN pfSetIdealActivity = reinterpret_cast<FN>(U::Offsets.m_dwSetIdealActivity);
 		if( pfSetIdealActivity ) {
-			Func.Init(pfSetIdealActivity, &Detour);
+			ok = Func.Init(pfSetIdealActivity, &Detour) && ok;
 		}
 	}
+	return ok;
 }

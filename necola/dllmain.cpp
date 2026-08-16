@@ -12,7 +12,7 @@
 #include <fstream>
 #include <algorithm>
 #include <string_view>
-#include <mutex>
+#include <atomic>
 #include <chrono>
 #include <thread>
 #include <MinHook.h>
@@ -137,8 +137,11 @@ DWORD __stdcall Hook_necola(LPVOID lpParam)
     }
     RawLog("calling CGlobal_ModuleEntry::Load");
     try {
-        G::ModuleEntry.Load();
-        RawLog("CGlobal_ModuleEntry::Load returned OK");
+        if (G::ModuleEntry.Load()) {
+            RawLog("CGlobal_ModuleEntry::Load returned OK");
+        } else {
+            RawLog("CGlobal_ModuleEntry::Load FAILED; plugin remains inactive");
+        }
     } catch (...) {
         RawLog("!!! CGlobal_ModuleEntry::Load threw exception");
     }
@@ -169,11 +172,24 @@ public:
     const char* GetName() override { return "Necola-ADS"; }
     const char* GetVersion() override { return sFixVer.c_str(); }
 
-    // SHARED once_flag across both callbacks — otherwise OnGameLaunch and
-    // OnModuleLoaded each get their OWN local static once_flag and spawn two
-    // separate init threads, both running ModuleEntry.Load() concurrently
-    // → duplicate MH_Initialize + duplicate hook installs → crash.
-    static std::once_flag s_initOnce;
+    static std::atomic_bool s_initStarted;
+
+    static void TryStartInit(const char* source) {
+        bool expected = false;
+        if (!s_initStarted.compare_exchange_strong(expected, true)) return;
+
+        char msg[128];
+        _snprintf_s(msg, sizeof(msg), _TRUNCATE,
+            "spawning InitThreadFunc (from %s)", source);
+        RawLog(msg);
+
+        if (auto h = CreateThread(nullptr, 0, &NecolaL4NPlugin::InitThreadFunc, nullptr, 0, nullptr)) {
+            CloseHandle(h);
+        } else {
+            RawLog("CreateThread(InitThreadFunc) FAILED; a later callback may retry");
+            s_initStarted.store(false);
+        }
+    }
 
     void OnModuleLoaded(const char* module_name, std::uintptr_t handle) override {
         // Official pattern (l4n_plugin.h sample): `handle` is the
@@ -190,26 +206,12 @@ public:
             DbgLog(buf);
         }
 
-        std::call_once(s_initOnce, []() {
-            RawLog("spawning InitThreadFunc (from OnModuleLoaded)");
-            if (auto h = CreateThread(NULL, 0, &NecolaL4NPlugin::InitThreadFunc, nullptr, 0, NULL)) {
-                CloseHandle(h);
-            } else {
-                RawLog("CreateThread(InitThreadFunc) FAILED");
-            }
-        });
+        TryStartInit("OnModuleLoaded");
     }
 
     void OnGameLaunch() override {
         DbgLog("OnGameLaunch() called");
-        std::call_once(s_initOnce, []() {
-            RawLog("spawning InitThreadFunc (from OnGameLaunch)");
-            if (auto h = CreateThread(NULL, 0, &NecolaL4NPlugin::InitThreadFunc, nullptr, 0, NULL)) {
-                CloseHandle(h);
-            } else {
-                RawLog("CreateThread(InitThreadFunc) FAILED");
-            }
-        });
+        TryStartInit("OnGameLaunch");
     }
 
     static DWORD __stdcall InitThreadFunc(LPVOID) {
@@ -217,8 +219,10 @@ public:
         const char* required[] = {
             "client.dll", "engine.dll", "vgui2.dll", "datacache.dll",
             "vguimatsurface.dll", "inputsystem.dll", "filesystem_stdio.dll",
+            "vstdlib.dll",
         };
         constexpr int kN = sizeof(required) / sizeof(required[0]);
+        bool allReady = false;
 
         for (int waited = 0; waited < 120; ++waited) {
             bool all = true;
@@ -234,6 +238,7 @@ public:
             }
             if (all) {
                 RawLog("all required modules present");
+                allReady = true;
                 break;
             }
             if (waited % 10 == 0) {
@@ -242,6 +247,10 @@ public:
                 RawLog(m);
             }
             std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        if (!allReady) {
+            RawLog("module wait timed out; initialization aborted");
+            return ERROR_TIMEOUT;
         }
         RawLog("module wait done, calling Hook_necola");
         DWORD r = Hook_necola(nullptr);
@@ -253,11 +262,7 @@ public:
     void OnD3DDeviceCreated(void* d3d_device, bool is_dxvk) override {}
 };
 
-// Definition of the shared once_flag — guarantees only ONE init thread is
-// ever spawned, regardless of which L4N callback fires first or how many
-// times. Without this, OnGameLaunch + OnModuleLoaded each create their own
-// local once_flag and start separate threads → duplicate ModuleEntry.Load().
-std::once_flag NecolaL4NPlugin::s_initOnce;
+std::atomic_bool NecolaL4NPlugin::s_initStarted{false};
 
 
 extern "C" __declspec(dllexport) IL4NPlugin* GetL4NPluginInstance() {

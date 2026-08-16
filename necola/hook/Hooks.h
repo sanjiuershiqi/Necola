@@ -11,8 +11,11 @@
 class CGlobal_Hooks
 {
 public:
-	void Init();
+	bool Init();
 	void undo();
+
+private:
+	bool m_initialized = false;
 };
 
 namespace G { inline CGlobal_Hooks Hooks; }
