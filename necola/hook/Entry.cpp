@@ -9,6 +9,8 @@
 #include "./Feature/CommandManager/CommandManager.h"
 #include "./Feature/MenuManager/MenuManager.h"
 #include "./Feature/AdsSupport/AdsSupport.h"
+#include "../sdk/L4NEnv.h"
+#include "../sdk/l4d2/interfaces/IConVar.h"
 #include "../sdk/utils/FeatureConfigManager.h"
 
 // ---- Local diagnostic logger (Win32, no CRT deps) ------------------------
@@ -94,6 +96,10 @@ static void RunLoadBody()
 		I::VGuiSurface      = U::Interface.Get<IVGuiSurface*>("vgui2.dll", "VGUI_Surface031");
 		I::MatSystemSurface = U::Interface.Get<IMatSystemSurface*>("vguimatsurface.dll", "VGUI_Surface031");
 		I::InputSystem		= U::Interface.Get<IInputSystem*>("inputsystem.dll", "InputSystemVersion001");
+
+		// ICvar — required for L4N coordination (l4n_* cvars) and for the
+		// direct-ConVar crosshair control in EngineVGui::Paint.
+		I::Cvars			= U::Interface.Get<ICvar*>("vstdlib.dll", "VEngineCvar007");
 	}
 	{
 		char buf[512];
@@ -101,15 +107,23 @@ static void RunLoadBody()
 			"  Interface check: BaseClient=%p ClientEntityList=%p EngineClient=%p "
 			"EngineVGui=%p VGuiPanel=%p VGuiSurface=%p MatSysSurface=%p InputSystem=%p "
 			"MDLCache=%p FileSystem=%p ModelInfo=%p GameEventMgr=%p Prediction=%p "
-			"EngineSound=%p NetStrTable=%p EngineTrace=%p",
+			"EngineSound=%p NetStrTable=%p EngineTrace=%p Cvars=%p",
 			(void*)I::BaseClient, (void*)I::ClientEntityList, (void*)I::EngineClient,
 			(void*)I::EngineVGui, (void*)I::VGuiPanel, (void*)I::VGuiSurface,
 			(void*)I::MatSystemSurface, (void*)I::InputSystem,
 			(void*)I::MDLCache, (void*)I::FileSystem, (void*)I::ModelInfo,
 			(void*)I::GameEventManager, (void*)I::Prediction,
-			(void*)I::EngineSound, (void*)I::NetworkStringTable, (void*)I::EngineTrace);
+			(void*)I::EngineSound, (void*)I::NetworkStringTable, (void*)I::EngineTrace,
+			(void*)I::Cvars);
 		ELog(buf);
 	}
+
+	// L4N environment awareness: detect the platform, cache the coordinated
+	// l4n_* cvars and log a one-shot conflict report (l4n_patch_hud_scope /
+	// l4n_vm_sway_* interactions with ADS).
+	ELog("Step 3.7: L4N::Env.Init()");
+	L4N::Env.Init();
+	ELog("Step 3.7 done");
 
 	{
 		char buf[256];
@@ -219,6 +233,8 @@ static void RunLoadBody()
 
 void CGlobal_ModuleEntry::undo()
 {
+	ELog("undo: restore crosshair if forced off");
+	Hooks::EngineVGui::RestoreCrosshairForUnload();
 	ELog("undo: G::Hooks.undo()");
 	G::Hooks.undo();
 	ELog("undo: G::InputManagerI.undo()");

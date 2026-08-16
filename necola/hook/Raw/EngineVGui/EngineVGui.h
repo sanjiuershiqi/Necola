@@ -16,5 +16,9 @@ namespace Hooks
 		}
 
 		void Init();
+
+		// Restore the user's crosshair value if we still have it forced
+		// off at unload time (called from ModuleEntry::undo).
+		void RestoreCrosshairForUnload();
 	}
 }

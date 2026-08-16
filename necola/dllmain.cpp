@@ -19,6 +19,7 @@
 #include <inipp.h>
 
 #include "l4n_plugin.h"
+#include "sdk/L4NEnv.h"
 #include "hook/Entry.h"
 #include "vars.h"
 
@@ -37,6 +38,17 @@ std::string ResolveLogPath() {
     size_t slash = p.find_last_of("\\/");
     std::string dir = (slash != std::string::npos) ? p.substr(0, slash) : ".";
     return dir + "\\L4N-Necola-ADS-diag.log";
+}
+
+// Verbose debugging (console window + per-module/per-callback logs) is opt-in
+// via the NECOLA_ADS_DEBUG environment variable, so a release install stays
+// silent. Critical milestones and failures are always written to the log.
+bool DebugEnabled() {
+    static const bool on = [] {
+        char buf[8];
+        return GetEnvironmentVariableA("NECOLA_ADS_DEBUG", buf, sizeof(buf)) > 0;
+    }();
+    return on;
 }
 
 // Trivially safe log that works even before spdlog is up: appends to a file
@@ -58,6 +70,13 @@ void RawLog(const char* msg) {
         WriteFile(h, line, (DWORD)n, &written, nullptr);
     }
     CloseHandle(h);
+}
+
+// Debug-only log: call sites that would spam every launch (per-module
+// callbacks, cmdline dumps, interface version probes).
+void DbgLog(const char* msg) {
+    if (!DebugEnabled()) return;
+    RawLog(msg);
 }
 
 void InitConsole() {
@@ -93,8 +112,12 @@ static void LoadIniSafe() {
 DWORD __stdcall Hook_necola(LPVOID lpParam)
 {
     RawLog("Hook_necola thread started");
-    InitConsole();
-    InitSpdlog();
+    // Console window + spdlog are debug-only: a release L4N plugin must not
+    // pop a console at every game launch. RawLog/ELog still cover the file.
+    if (DebugEnabled()) {
+        InitConsole();
+        InitSpdlog();
+    }
 
     HANDLE hProcess = OpenProcess(SYNCHRONIZE, FALSE, GetCurrentProcessId());
     if (!hProcess) { RawLog("OpenProcess(SYNCHRONIZE) failed — continuing anyway"); }
@@ -102,15 +125,15 @@ DWORD __stdcall Hook_necola(LPVOID lpParam)
     LoadIniSafe();
     RawLog("LoadIni done");
 
-    std::wstring cmdline = cfg::System::cmdLine;
-    if (cmdline.empty()) {
-        cmdline = GetCommandLineW() ? GetCommandLineW() : L"";
-    }
-    {
+    if (DebugEnabled()) {
+        std::wstring cmdline = cfg::System::cmdLine;
+        if (cmdline.empty()) {
+            cmdline = GetCommandLineW() ? GetCommandLineW() : L"";
+        }
         char buf[2048];
         WideCharToMultiByte(CP_UTF8, 0, cmdline.c_str(), -1, buf, sizeof(buf), nullptr, nullptr);
         std::string m = "cmdline: " + std::string(buf);
-        RawLog(m.c_str());
+        DbgLog(m.c_str());
     }
     RawLog("calling CGlobal_ModuleEntry::Load");
     try {
@@ -140,7 +163,7 @@ void Undo_necola()
 class NecolaL4NPlugin : public IL4NPlugin {
 public:
     unsigned int GetInterfaceVersion() override {
-        RawLog("GetInterfaceVersion() called -> 1");
+        DbgLog("GetInterfaceVersion() called -> 1");
         return 1;
     }
     const char* GetName() override { return "Necola-ADS"; }
@@ -153,10 +176,19 @@ public:
     static std::once_flag s_initOnce;
 
     void OnModuleLoaded(const char* module_name, std::uintptr_t handle) override {
-        char buf[256];
-        _snprintf_s(buf, sizeof(buf), _TRUNCATE,
-            "OnModuleLoaded(\"%s\", 0x%p)", module_name ? module_name : "(null)", (void*)handle);
-        RawLog(buf);
+        // Official pattern (l4n_plugin.h sample): `handle` is the
+        // LoadLibrary HMODULE, converted via std::bit_cast<HMODULE>; the
+        // name arrives WITHOUT the ".dll" suffix. L4N::Env normalizes and
+        // stores it so the rest of the plugin can resolve modules through
+        // the platform-reported handles instead of re-guessing.
+        L4N::Env.OnModuleLoaded(module_name, handle);
+
+        if (DebugEnabled()) {
+            char buf[256];
+            _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+                "OnModuleLoaded(\"%s\", 0x%p)", module_name ? module_name : "(null)", (void*)handle);
+            DbgLog(buf);
+        }
 
         std::call_once(s_initOnce, []() {
             RawLog("spawning InitThreadFunc (from OnModuleLoaded)");
@@ -169,7 +201,7 @@ public:
     }
 
     void OnGameLaunch() override {
-        RawLog("OnGameLaunch() called");
+        DbgLog("OnGameLaunch() called");
         std::call_once(s_initOnce, []() {
             RawLog("spawning InitThreadFunc (from OnGameLaunch)");
             if (auto h = CreateThread(NULL, 0, &NecolaL4NPlugin::InitThreadFunc, nullptr, 0, NULL)) {
@@ -181,7 +213,7 @@ public:
     }
 
     static DWORD __stdcall InitThreadFunc(LPVOID) {
-        RawLog("InitThreadFunc entered");
+        DbgLog("InitThreadFunc entered");
         const char* required[] = {
             "client.dll", "engine.dll", "vgui2.dll", "datacache.dll",
             "vguimatsurface.dll", "inputsystem.dll", "filesystem_stdio.dll",
@@ -229,9 +261,9 @@ std::once_flag NecolaL4NPlugin::s_initOnce;
 
 
 extern "C" __declspec(dllexport) IL4NPlugin* GetL4NPluginInstance() {
-    RawLog("GetL4NPluginInstance() called");
+    DbgLog("GetL4NPluginInstance() called");
     static NecolaL4NPlugin instance;
-    RawLog("GetL4NPluginInstance() returning instance");
+    DbgLog("GetL4NPluginInstance() returning instance");
     return &instance;
 }
 
