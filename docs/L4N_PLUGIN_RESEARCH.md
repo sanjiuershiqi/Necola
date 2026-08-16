@@ -131,7 +131,8 @@ OnModuleLoaded("serverbrowser")    ← 最晚之一
 - 版本 "Nekook v1.6 - by Starfelll"，更新日志注明"1.6 支持l4n"
 - 用途（nekook_readme.txt）：**mod 开发启动器**——把任意目录挂载进 Source 文件系统（优先级高于 vpk）、免打包测试、配合 nekomdl 热重载 mdl/vmt
 - 关键字符串证据：`INJECT ERROR: %s`、`Nekook_Main` 导出、`-nekook "`/`-vpkwhitelist`/`left4dead2.exe`/`-hide_neko`、`too many neko for index buffer`
-- `nekook_core.dll` 内含 `LM_AllocMemory`/`LM_Assemble`（运行时汇编/注入库），用于给引擎打 index buffer 扩容补丁（对应 config 的 `index_buffer_size`）
+- `nekook_core.dll` 导出表（70 个，全部 `LM_*` 前缀）= **LibAsmMagic 运行时库**：`LM_PatternScan(Ex)`、`LM_HookCode(Ex)`、`LM_Assemble/Disassemble`、`LM_Alloc/FreeMemory`、`LM_EnumModules/Processes/Symbols`、`LM_FindSymbolAddress` 等——与我们插件的 MinHook + 自研 pattern scan 属同类技术栈；nekook 用它给引擎打 index buffer 扩容补丁（对应 config 的 `index_buffer_size`）
+- 游戏内亦有配套命令：`l4n_nekook_path_append/remove`（readme:471-472，运行时挂载搜索路径）
 - **结论**：nekook 是开发期工具。玩家正常运行游戏不需要它；插件作者可用它加速"改资源→进游戏"迭代
 
 ### 4.2 nekomdl（模型工具）
@@ -167,6 +168,76 @@ readme:383 原文："是否在触发伸手动画时禁用sway效果，**启用�
 
 ### 5.4 字体替换（font.replace）
 config.vdf 可做全局字体替换（如 Tahoma→微软雅黑）。我们菜单用 `Microsoft YaHei` 25px——若用户系统缺该字体，可指引其通过 L4N font 配置全局兜底。
+
+### 5.5 l4nscope：L4N 原生自定义开镜（重大发现，与本项目同域！）
+
+v2.43.0 readme:357 将 `l4nscope` 列为"以下功能需要MOD适配"之一；更新日志 [2.28.0] - 2026-05-24："新增：**以v模为单位的武器自定义开镜功能**"。
+
+即 L4N 平台原生支持**武器 viewmodel mod 内置开镜效果**——与我们的 ADS 插件属同一功能域。
+
+配套的 HUD 侧机制：
+- `l4n_patch_hud_scope 1`（readme:428）：是否**接管狙击枪开镜 HUD 的渲染**
+- `l4n_hud_scope_draw_padding_block`（readme:427）：HUD 开镜黑边填充
+- GUI 项 `🐱allow_hud_hud_scope_display`（l4ngui_schinese.vdf）："允许HUD显示开镜"
+
+**对本项目的意义**：
+1. **共存问题**：若用户武器 mod 已适配 l4nscope，同时开启插件 ADS 可能双重处理开镜状态。建议后续在插件里检测/文档说明二者选一，或提供开关
+2. **HUD 依赖**：`l4n_patch_hud_scope` 接管狙击枪开镜 HUD 时，我们的准星隐藏逻辑（Paint 钩子里 `crosshair 0/1`）可能与 L4N 的接管渲染交互——排查"开镜时准星异常"要先确认此 cvar 状态
+3. **定位差异**：l4nscope 需要每个武器 mod 单独适配（QC 层），我们的 ADS 是通用序列重映射（运行时层，零适配）——互补关系而非纯竞争
+
+## 五A、L4N 完整功能面（l4ngui_schinese.vdf 逆向）
+
+GUI 本地化文件（116 行，约 100 个 token）完整暴露 L4N 游戏内设置项。按类归纳：
+
+| 分类 | 功能项（节选） |
+|---|---|
+| **屏幕后处理**（需 `-l4n_use_neko_engine_post`） | 色调映射（Neutral/Unity 推荐、Linear/Reinhard/Filmic/CE 等曲线）、亮度、伽马、场景曝光、局部对比度（仅负/仅正/全启用）、暗度限制（lightmap/ambient 分开）、NekoBloom 泛光（强度/激发亮度/亮度限制/半径/混合模式/遮罩贴图）、NekoSky 亮度与叠加纹理 |
+| **第一人称设置** | 伸手动画（物品/援助）、sway 滞后时间、禁止手指拉伸、模型位置偏移、自发光 ±10%/重置、VLG↔PBR 材质互转、手模转 NekoToon |
+| **实体相关** | 随机身高、玩家实体染色（禁用/重置/随机）、幸存者光照强度、全局幸存者缩放、准星处角色模型转 NekoToon |
+| **开镜/准星**（与 ADS 同域） | 允许 HUD 显示开镜、HUD 开镜空白区域填充、精确第三人称准星（缩放/动态/透明度）、`l4nscope` 自定义开镜 |
+| **手电筒** | 亮度倍率、R/G/B 颜色倍率、手电筒枪火、动态枪火光源（遵循/忽略消音粒子、最大距离、抑制曝光） |
+| **贴花** | 静态道具/实体/特感/幸存者/普感 5 类独立开关 |
+| **HUD/界面** | 队友状态显示、接管 HUD 队友信息（实验）、玩家列表（Steam 头像/胆汁图标裁剪）、内存占用显示、Hud 菜单位置 |
+| **NekoToon** | 描边（禁用/世界空间厚度/屏幕空间厚度）、描边厚度倍率、统一 LightWarp |
+| **杂项** | 快速录 DEMO、禁普感布娃娃、屏幕震动强度、受击晃动强度、实体消逝、一致性检查、第三人称开火声音修复、自定义指令菜单 |
+| **实验性** | 接管 HUD 队友信息、接管 ReShade 效果渲染（`l4n_reshade_draw`，HUD 前渲染 ReShade 滤镜） |
+
+**关键 cvar 速查**（readme 完整表 60+ 个，最相关节选）：
+
+| cvar | 作用 | 与本项目关系 |
+|---|---|---|
+| `l4n_vm_sway` / `l4n_vm_sway_interp` / `l4n_vm_sway_scale` | v 模摆动开关/恢复时间/幅度 | ADS 动画观感直接相关 |
+| `l4n_vm_sway_ignore_helpinghand` | 伸手动画时禁 sway | 官方注释点名影响"插件的动画(如ADS)" |
+| `l4n_vm_offset_x/y/z` | 全局 v 模位置偏移 | 与 ADS 武器偏移叠加 |
+| `l4n_pin_viewmodel` | 固定 viewmodel 实体 | ADS 视角调试用 |
+| `l4n_patch_hud_scope` / `l4n_hud_scope_draw_padding_block` | 接管狙击枪开镜 HUD / 黑边填充 | 开镜 HUD 冲突排查 |
+| `l4n_view_punch_scale` / `l4n_screen_shake_scale` | 受击晃动/屏幕震动 | ADS 稳定射击体验 |
+| `l4n_game_hud_visible` | HUD 总开关 | 准星隐藏逻辑交互 |
+| `l4n_allow_lobby_cheats` | 大厅作弊限制提示 | 部署环境理解 |
+| `l4n_scripted_hud_allow[_slot1~15]` | 脚本化 HUD 渲染开关 | 15 个 slot——插件 HUD 扩展点候选 |
+
+**关键 concmd**：
+- `l4n_vm_offset2 [x/dx/y/dy/z/dz/reset] [value]`：当前 v 模位置偏移（含增量模式）——ADS 武器偏移官方调法
+- `l4n_print_launch_options`：输出当前可识别启动项——部署排障第一命令
+- `l4n_env_report`：输出运行环境信息
+- `l4n_nekook_path_append/remove "path"`：**运行时**添加/移除高优先级资产搜索路径
+- `l4n_reload_config` / `l4n_reload_sequence_event_vdf` / `l4n_reload_vgui_schemes`：三类配置热重载
+- `l4n_revert_cvar <name>`：cvar 恢复默认（cvar 值不持久化，建议写 autoexec.cfg）
+
+## 五B、MOD 适配协议（mdl_extension.qc 逆向）
+
+`neko/mdl_extension.qc` 是模型 mod 适配 L4N 的 QC 命令示例，揭示了完整的模型层扩展协议：
+
+1. **`$NekoModel` QC 块**：新 QC 命令，支持 gltf/glb/fbx 源文件直接引用；内含形态键眼追协议——4 个方向 flex + 2 个 flexcontroller（`l4neyes_updown`/`l4neyes_rightleft`），绑定公式 `"%eye_look_up" = max(-l4neyes_updown, 0)`。注释强调：新 flexcontroller 必须加到已有列表**底部**，否则破坏排序导致表情联机同步问题
+2. **自定义形态键 UI**：`flexcontroller l4n range 0 1 "名称"`——分组名 `l4n` 的控制器自动进 L4N 模型选项面板
+3. **BodyGroup 扩展**：超过 2 个选项需 `⭐` 前缀（防与静态表情冲突）；Model/Body/NekoModel 也计入 BodyGroup，**所有组合不能超过 2147483647**
+4. **`$TextureGroup` 材质预设**：多套皮肤切换（需 nekomdl 编译器支持）
+5. **`$KeyValues left4neko` 元数据块**：`name`（用户友好名）、`name_suffix`、`player_foot`（**按 bodygroup 选项的足 IK 修正**，如高跟鞋 `"1" "-2.1,-60.0"`）、`scale`
+
+**其他 Modder 扩展点**（readme For Modder 章节）：
+- `neko_proxy.vmt`：平台扩充材质代理文档，现有"获取弹药数量/备用弹药数量"代理
+- `l4n/scripts/sound/*.txt`：自动加载为声音脚本（vpk 内需带 sound.cache）
+- `l4n/particles/*.pcf`：自动加载粒子（`!` 前缀文件名有对应效果），无需 manifest 依赖
 
 ## 六、L4N 全部配置扩展点（v2.43.0 config_template.vdf 全量）
 
@@ -235,7 +306,7 @@ Step 3.6: dereferencing offsets ...
 
 ## 九、仍未逆向的部分（诚实记录）
 
-1. **修改版 left4dead2.exe 本体**：不在 v2.43.0 增量包内（完整安装包才有）。插件加载循环、config.vdf 解析、按键列表注入等实现细节无法二进制级确认。如需深入：从游戏安装目录取该 exe（Steam 会校验 hash，删除后重新"验证完整性"即得原版可作 diff 基准）。
-2. **`game_shader_generic_neko.dll` 内部逻辑**：仅 3 个标准导出（CreateInterface/cvar/g_pCVar），是纯 shader DLL，未见插件加载痕迹；未做完整反汇编。
-3. **`nekook_core.dll` 的 5.7MB .rdata**：未见 GetL4NPluginInstance/plugins 字符串（nekook 本就不负责插件加载，合理）；内嵌数据未逐块分析。
+1. **修改版 left4dead2.exe 本体**：不在 v2.43.0 增量包内（完整安装包才有）。插件加载循环、config.vdf 解析、按键列表注入、`l4nscope` 的 mod 适配判定等实现细节无法二进制级确认。如需深入：从游戏安装目录取该 exe（Steam 会校验 hash，删除后重新"验证完整性"即得原版可作 diff 基准）。
+2. **`l4nscope` 的适配格式**：readme 仅在"需要MOD适配"列表提及，包内未发现 l4nscope 的 QC/KeyValues 格式文档（可能随完整包或需询问作者）。当前只能确认其存在与版本（2.28.0）。
+3. **`game_shader_generic_neko.dll` 内部逻辑**：仅 3 个标准导出（CreateInterface/cvar/g_pCVar），是纯 shader DLL，未见插件加载痕迹；未做完整反汇编。
 4. **D3D 回调实际行为**：未实测（用户走 -vulkan/dxvk 路径）。
