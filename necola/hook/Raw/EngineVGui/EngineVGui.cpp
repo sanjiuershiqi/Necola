@@ -1,7 +1,7 @@
 #include "EngineVGui.h"
 
-#include "../../sdk/L4NEnv.h"
-#include "../../sdk/l4d2/interfaces/IConVar.h"
+#include "../../../sdk/L4NEnv.h"
+#include "../../../sdk/l4d2/interfaces/IConVar.h"
 
 #include "../../Vars.h"
 #include "../../Feature/MenuManager/MenuManager.h"
