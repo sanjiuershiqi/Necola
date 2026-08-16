@@ -10,6 +10,28 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
 本文件会随版本更新，收录了所有功能的说明，部分功能会添加进l4n菜单里方便使用
 当前版本需要将l4n_patch_team_player_display设置为1才能显示l4nsurvivor头像
 
+[2.43.0]
+修改：l4n菜单里新增了NekoShaders的设置，新增的"统一lightwarp"功能可用于解决不同mod作者间光照标准不统一的问题
+新增：convar mat_nekotoon_normalized_lightwarp
+修改：将mat_outline_thickness_scale设置为可保存
+修复：l4n_view_punch_scale的失效问题
+修复：服务器浏览器本地化文本加载失败导致的l4n本地化功能失效
+
+[2.42.1]
+修复：l4nsurvivor随机分配算法在实体随机数生成前就已经生效的问题
+
+[2.42.0]
+修复：l4nsurvivor随机分配算法在玩家进入闲置时的卡顿问题
+修改：转换NekoToon菜单新增了描边选项
+新增：convar l4n_to_nekotoon_outline_type
+移除：convar l4n_survivor_model_use_nekotoon
+移除：convar l4n_to_nekotoon_allow_outline
+
+
+[2.41.1] 2026-08-12
+修复：l4n_view_punch_scale为零时，客户端预测导致的视角抖动
+修改：优先使用cl_language来确定l4ngui的显示语言
+
 [2.41.0]
 新增：convar l4n_screen_shake_scale
 新增：convar l4n_view_punch_scale
@@ -373,7 +395,6 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
     l4n_game_usage 0,                   hud显示和引擎稳定性有关的数据(datacache，ents是实体峰值数量，av是游戏进程的可用内存)
     l4n_game_usage_pos 32，             控制l4n_game_usage显示的位置
     l4n_game_usage_padding 24，         控制l4n_game_usage距屏幕边缘的位置
-    l4n_survivor_model_use_nekotoon 0   是否自动将幸存者模型的材质转换为NekoToon材质，修改后需重启游戏；自动转换的结果可能有bug，尤其是部分模型的脸部；参数2则禁用描边
     l4n_survivor_sequence_strip         是否修复幸存者mod的动画数量，修改后需重启游戏，更多信息查看config_template.vdf
     l4n_prevent_varms_stretching 0      是否禁止第一人称手模动画里部分骨骼的拉伸
     l4n_player_list_show_steam_avatar 1         +l4n_player_list显示steam玩家头像
@@ -481,6 +502,7 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
         mat_nekotoon_darkness_limit 0.02    渲染结果的暗度限制
         mat_nekotoon_lazy_texture_load 0    是否在渲染时才加载对应材质的贴图
         mat_nekotoon_ignore_flat_normal 1   是否禁止使用"flat_normal"以提升性能，数值2则更严格
+        mat_nekotoon_normalized_lightwarp   统一lightwarp的最大亮度，可用于解决不同mod作者间光照标准不统一的问题
     neko_engine_post:
         mat_neko_tonemapping_algorithm 6    ToneMapping曲线(0:Linear/1:Reinhard/2:Filmic(神秘海域2)/3:CE(CryEngine2)/4:ACES(UE4默认)/5:GranTurismo/6:Neutral(Unity)/7:NAES/8:LOG2(终末地)/9:AgX)，需添加-l4n_use_neko_engine_post启动项才能使用
         mat_neko_tonemapping_force_linear 0 强制使用linear tonemapping，用于调试

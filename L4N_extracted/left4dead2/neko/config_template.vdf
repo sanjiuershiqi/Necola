@@ -2,6 +2,7 @@
 // 版本更新增加了配置项的情况下，你可能需要检查config_template.vdf，获取新配置项的示例
 // Valve KeyValue Format
 "config" {
+    // version 2
     // 1代表是，0代表否
     // "//"表示注释，从"//"开始到行末的内容会被忽略
 
