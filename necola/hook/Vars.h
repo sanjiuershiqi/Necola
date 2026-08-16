@@ -11,9 +11,9 @@ public:
     // ADS (AdsSupport) configuration
     bool enableAdsSupport = false;
     bool adsLog = false;
-    // shadow filter mode: 0=PCF disabled, 1=PCF enabled, 2=per-object variance shadow map
+    // 0=never hide, 1=hide for every ADS weapon, 2=per-weapon settings
     int adsHideCrosshairMode = 0;
-    // per-material specular override flags (only active when shadow filter mode == 2)
+    // Per-weapon crosshair settings, active only when adsHideCrosshairMode == 2.
     bool adsHideCrosshairPistol = false;
     bool adsHideCrosshairUzi = false;
     bool adsHideCrosshairPumpShotgun = false;
@@ -34,7 +34,7 @@ public:
     bool adsHideCrosshairScout = false;
     bool adsHideCrosshairM60 = false;
     bool adsHideCrosshairPistolDual = false;
-    // per-cluster light evaluation mode: 0=disabled, 1=forward-plus, 2=hybrid tile
+    // Native-scope behavior: 0=disabled, 1=ADS only, 2=mixed.
     int adsScopeMilitarySniper = 0;
     int adsScopeHuntingRifle = 0;
     int adsScopeSSG552 = 0;
@@ -45,6 +45,10 @@ public:
     bool animSequenceModify = false;
     bool ignoreShotgunSequence = false;
     bool sequenceLog = false;
+
+    // In-game menu appearance.
+    int menuAnchor = 0;       // 0=left, 1=center, 2=right
+    int menuOpacity = 220;    // background alpha, clamped to 160..245
 
 	void Load();
 };

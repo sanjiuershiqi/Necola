@@ -5,6 +5,7 @@
 #include "../../../sdk/utils/FeatureConfigManager.h"
 #include <spdlog/spdlog.h>
 #include <unordered_map>
+#include <algorithm>
 
 namespace F {
 
@@ -1974,71 +1975,92 @@ void AdsSupport::RestoreNormalLayerSequence(C_BaseViewModel* viewModel) {
 }
 
 void AdsSupport::LoadConfig(const nlohmann::json& doc) {
-    if (!doc.contains("AdsSupport")) return;
-    const auto& ads = doc["AdsSupport"];
-    G::Vars.enableAdsSupport      = ads.value("EnableAdsSupport", false);
-    G::Vars.adsLog                = ads.value("AdsLog", false);
-    G::Vars.adsHideCrosshairMode  = ads.value("AdsHideCrosshairMode", 0);
+    const auto section = doc.find("AdsSupport");
+    if (section == doc.end() || !section->is_object()) return;
+    const auto& ads = *section;
+    auto readBool = [&ads](const char* key, bool fallback) {
+        const auto value = ads.find(key);
+        return value != ads.end() && value->is_boolean() ? value->get<bool>() : fallback;
+    };
+    auto readMode = [&ads](const char* key, int fallback) {
+        const auto value = ads.find(key);
+        if (value == ads.end() || !value->is_number_integer()) return fallback;
+        try {
+            if (value->is_number_unsigned()) {
+                const auto mode = value->get<nlohmann::json::number_unsigned_t>();
+                return mode <= 2 ? static_cast<int>(mode) : fallback;
+            }
+            const auto mode = value->get<nlohmann::json::number_integer_t>();
+            return static_cast<int>(std::clamp<nlohmann::json::number_integer_t>(mode, 0, 2));
+        } catch (...) {
+            return fallback;
+        }
+    };
+
+    G::Vars.enableAdsSupport      = readBool("EnableAdsSupport", false);
+    G::Vars.adsLog                = readBool("AdsLog", false);
+    G::Vars.adsHideCrosshairMode  = readMode("AdsHideCrosshairMode", 0);
     // per-material specular suppression override flags
-    G::Vars.adsHideCrosshairPistol         = ads.value("HideCrosshairPistol", false);
-    G::Vars.adsHideCrosshairUzi            = ads.value("HideCrosshairUzi", false);
-    G::Vars.adsHideCrosshairPumpShotgun    = ads.value("HideCrosshairPumpShotgun", false);
-    G::Vars.adsHideCrosshairAutoShotgun    = ads.value("HideCrosshairAutoShotgun", false);
-    G::Vars.adsHideCrosshairM16A1          = ads.value("HideCrosshairM16A1", false);
-    G::Vars.adsHideCrosshairHuntingRifle   = ads.value("HideCrosshairHuntingRifle", false);
-    G::Vars.adsHideCrosshairMac10          = ads.value("HideCrosshairMac10", false);
-    G::Vars.adsHideCrosshairChromeShotgun  = ads.value("HideCrosshairChromeShotgun", false);
-    G::Vars.adsHideCrosshairScar           = ads.value("HideCrosshairScar", false);
-    G::Vars.adsHideCrosshairMilitarySniper = ads.value("HideCrosshairMilitarySniper", false);
-    G::Vars.adsHideCrosshairSpas           = ads.value("HideCrosshairSpas", false);
-    G::Vars.adsHideCrosshairGrenadeLauncher = ads.value("HideCrosshairGrenadeLauncher", false);
-    G::Vars.adsHideCrosshairAK47           = ads.value("HideCrosshairAK47", false);
-    G::Vars.adsHideCrosshairDeagle         = ads.value("HideCrosshairDeagle", false);
-    G::Vars.adsHideCrosshairMP5            = ads.value("HideCrosshairMP5", false);
-    G::Vars.adsHideCrosshairSSG552         = ads.value("HideCrosshairSSG552", false);
-    G::Vars.adsHideCrosshairAWP            = ads.value("HideCrosshairAWP", false);
-    G::Vars.adsHideCrosshairScout          = ads.value("HideCrosshairScout", false);
-    G::Vars.adsHideCrosshairM60            = ads.value("HideCrosshairM60", false);
-    G::Vars.adsHideCrosshairPistolDual     = ads.value("HideCrosshairPistolDual", false);
+    G::Vars.adsHideCrosshairPistol         = readBool("HideCrosshairPistol", false);
+    G::Vars.adsHideCrosshairUzi            = readBool("HideCrosshairUzi", false);
+    G::Vars.adsHideCrosshairPumpShotgun    = readBool("HideCrosshairPumpShotgun", false);
+    G::Vars.adsHideCrosshairAutoShotgun    = readBool("HideCrosshairAutoShotgun", false);
+    G::Vars.adsHideCrosshairM16A1          = readBool("HideCrosshairM16A1", false);
+    G::Vars.adsHideCrosshairHuntingRifle   = readBool("HideCrosshairHuntingRifle", false);
+    G::Vars.adsHideCrosshairMac10          = readBool("HideCrosshairMac10", false);
+    G::Vars.adsHideCrosshairChromeShotgun  = readBool("HideCrosshairChromeShotgun", false);
+    G::Vars.adsHideCrosshairScar           = readBool("HideCrosshairScar", false);
+    G::Vars.adsHideCrosshairMilitarySniper = readBool("HideCrosshairMilitarySniper", false);
+    G::Vars.adsHideCrosshairSpas           = readBool("HideCrosshairSpas", false);
+    G::Vars.adsHideCrosshairGrenadeLauncher = readBool("HideCrosshairGrenadeLauncher", false);
+    G::Vars.adsHideCrosshairAK47           = readBool("HideCrosshairAK47", false);
+    G::Vars.adsHideCrosshairDeagle         = readBool("HideCrosshairDeagle", false);
+    G::Vars.adsHideCrosshairMP5            = readBool("HideCrosshairMP5", false);
+    G::Vars.adsHideCrosshairSSG552         = readBool("HideCrosshairSSG552", false);
+    G::Vars.adsHideCrosshairAWP            = readBool("HideCrosshairAWP", false);
+    G::Vars.adsHideCrosshairScout          = readBool("HideCrosshairScout", false);
+    G::Vars.adsHideCrosshairM60            = readBool("HideCrosshairM60", false);
+    G::Vars.adsHideCrosshairPistolDual     = readBool("HideCrosshairPistolDual", false);
     // cascade split interval parameters
-    G::Vars.adsScopeMilitarySniper = ads.value("ScopeMilitarySniper", 0);
-    G::Vars.adsScopeHuntingRifle  = ads.value("ScopeHuntingRifle", 0);
-    G::Vars.adsScopeSSG552        = ads.value("ScopeSSG552", 0);
-    G::Vars.adsScopeAWP           = ads.value("ScopeAWP", 0);
-    G::Vars.adsScopeScout         = ads.value("ScopeScout", 0);
+    G::Vars.adsScopeMilitarySniper = readMode("ScopeMilitarySniper", 0);
+    G::Vars.adsScopeHuntingRifle  = readMode("ScopeHuntingRifle", 0);
+    G::Vars.adsScopeSSG552        = readMode("ScopeSSG552", 0);
+    G::Vars.adsScopeAWP           = readMode("ScopeAWP", 0);
+    G::Vars.adsScopeScout         = readMode("ScopeScout", 0);
 }
 
 void AdsSupport::SaveConfig(nlohmann::json& doc) const {
-    doc["AdsSupport"]["EnableAdsSupport"]      = G::Vars.enableAdsSupport;
-    doc["AdsSupport"]["AdsLog"]                = G::Vars.adsLog;
-    doc["AdsSupport"]["AdsHideCrosshairMode"]  = G::Vars.adsHideCrosshairMode;
+    auto& adsConfig = NecolaConfig::EnsureSectionObject(doc, "AdsSupport");
+    adsConfig["EnableAdsSupport"]      = G::Vars.enableAdsSupport;
+    adsConfig["AdsLog"]                = G::Vars.adsLog;
+    adsConfig["AdsHideCrosshairMode"]  = G::Vars.adsHideCrosshairMode;
     // per-material specular suppression override flags
-    doc["AdsSupport"]["HideCrosshairPistol"]         = G::Vars.adsHideCrosshairPistol;
-    doc["AdsSupport"]["HideCrosshairUzi"]            = G::Vars.adsHideCrosshairUzi;
-    doc["AdsSupport"]["HideCrosshairPumpShotgun"]    = G::Vars.adsHideCrosshairPumpShotgun;
-    doc["AdsSupport"]["HideCrosshairAutoShotgun"]    = G::Vars.adsHideCrosshairAutoShotgun;
-    doc["AdsSupport"]["HideCrosshairM16A1"]          = G::Vars.adsHideCrosshairM16A1;
-    doc["AdsSupport"]["HideCrosshairHuntingRifle"]   = G::Vars.adsHideCrosshairHuntingRifle;
-    doc["AdsSupport"]["HideCrosshairMac10"]          = G::Vars.adsHideCrosshairMac10;
-    doc["AdsSupport"]["HideCrosshairChromeShotgun"]  = G::Vars.adsHideCrosshairChromeShotgun;
-    doc["AdsSupport"]["HideCrosshairScar"]           = G::Vars.adsHideCrosshairScar;
-    doc["AdsSupport"]["HideCrosshairMilitarySniper"] = G::Vars.adsHideCrosshairMilitarySniper;
-    doc["AdsSupport"]["HideCrosshairSpas"]           = G::Vars.adsHideCrosshairSpas;
-    doc["AdsSupport"]["HideCrosshairGrenadeLauncher"] = G::Vars.adsHideCrosshairGrenadeLauncher;
-    doc["AdsSupport"]["HideCrosshairAK47"]           = G::Vars.adsHideCrosshairAK47;
-    doc["AdsSupport"]["HideCrosshairDeagle"]         = G::Vars.adsHideCrosshairDeagle;
-    doc["AdsSupport"]["HideCrosshairMP5"]            = G::Vars.adsHideCrosshairMP5;
-    doc["AdsSupport"]["HideCrosshairSSG552"]         = G::Vars.adsHideCrosshairSSG552;
-    doc["AdsSupport"]["HideCrosshairAWP"]            = G::Vars.adsHideCrosshairAWP;
-    doc["AdsSupport"]["HideCrosshairScout"]          = G::Vars.adsHideCrosshairScout;
-    doc["AdsSupport"]["HideCrosshairM60"]            = G::Vars.adsHideCrosshairM60;
-    doc["AdsSupport"]["HideCrosshairPistolDual"]     = G::Vars.adsHideCrosshairPistolDual;
+    adsConfig["HideCrosshairPistol"]         = G::Vars.adsHideCrosshairPistol;
+    adsConfig["HideCrosshairUzi"]            = G::Vars.adsHideCrosshairUzi;
+    adsConfig["HideCrosshairPumpShotgun"]    = G::Vars.adsHideCrosshairPumpShotgun;
+    adsConfig["HideCrosshairAutoShotgun"]    = G::Vars.adsHideCrosshairAutoShotgun;
+    adsConfig["HideCrosshairM16A1"]          = G::Vars.adsHideCrosshairM16A1;
+    adsConfig["HideCrosshairHuntingRifle"]   = G::Vars.adsHideCrosshairHuntingRifle;
+    adsConfig["HideCrosshairMac10"]          = G::Vars.adsHideCrosshairMac10;
+    adsConfig["HideCrosshairChromeShotgun"]  = G::Vars.adsHideCrosshairChromeShotgun;
+    adsConfig["HideCrosshairScar"]           = G::Vars.adsHideCrosshairScar;
+    adsConfig["HideCrosshairMilitarySniper"] = G::Vars.adsHideCrosshairMilitarySniper;
+    adsConfig["HideCrosshairSpas"]           = G::Vars.adsHideCrosshairSpas;
+    adsConfig["HideCrosshairGrenadeLauncher"] = G::Vars.adsHideCrosshairGrenadeLauncher;
+    adsConfig["HideCrosshairAK47"]           = G::Vars.adsHideCrosshairAK47;
+    adsConfig["HideCrosshairDeagle"]         = G::Vars.adsHideCrosshairDeagle;
+    adsConfig["HideCrosshairMP5"]            = G::Vars.adsHideCrosshairMP5;
+    adsConfig["HideCrosshairSSG552"]         = G::Vars.adsHideCrosshairSSG552;
+    adsConfig["HideCrosshairAWP"]            = G::Vars.adsHideCrosshairAWP;
+    adsConfig["HideCrosshairScout"]          = G::Vars.adsHideCrosshairScout;
+    adsConfig["HideCrosshairM60"]            = G::Vars.adsHideCrosshairM60;
+    adsConfig["HideCrosshairPistolDual"]     = G::Vars.adsHideCrosshairPistolDual;
     // cascade split interval parameters
-    doc["AdsSupport"]["ScopeMilitarySniper"]   = G::Vars.adsScopeMilitarySniper;
-    doc["AdsSupport"]["ScopeHuntingRifle"]     = G::Vars.adsScopeHuntingRifle;
-    doc["AdsSupport"]["ScopeSSG552"]           = G::Vars.adsScopeSSG552;
-    doc["AdsSupport"]["ScopeAWP"]              = G::Vars.adsScopeAWP;
-    doc["AdsSupport"]["ScopeScout"]            = G::Vars.adsScopeScout;
+    adsConfig["ScopeMilitarySniper"]   = G::Vars.adsScopeMilitarySniper;
+    adsConfig["ScopeHuntingRifle"]     = G::Vars.adsScopeHuntingRifle;
+    adsConfig["ScopeSSG552"]           = G::Vars.adsScopeSSG552;
+    adsConfig["ScopeAWP"]              = G::Vars.adsScopeAWP;
+    adsConfig["ScopeScout"]            = G::Vars.adsScopeScout;
 }
 
 bool AdsSupport::ShouldHideCrosshair() const {

@@ -75,7 +75,7 @@ vstdlib.dll
 6. 只解引用当前运行路径必需的 GlobalVars 指针，并验证结果。
 7. 替换 Valve 窗口过程，收集键鼠消息。
 8. 初始化 MinHook 并安装 Raw hook，检查每一步返回值。
-9. 从 `necola\FeatureConfig.json` 读取 ADS 和序列配置。
+9. 从 `necola\FeatureConfig.json` 读取 ADS、序列和菜单外观配置。
 10. 找齐并替换 3 个 `CBaseViewModel` RecvProp proxy。
 11. 按配置初始化 ADS，初始化菜单字体和菜单开关。
 12. 注册 5 个 `necola_*` 控制台命令。
@@ -168,6 +168,10 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 4. 只有找不到 ConVar 时才回退到 `ClientCmd("crosshair 0/1")`。
 5. 绘制 Necola VGUI 菜单。
 
+菜单每帧从 `IMatSystemSurface::GetScreenSize()` 更新布局，支持左/中/右锚点、三档背景透明度、分页
+状态和禁用项样式。可用区域小于 `452x366` 时自动关闭。`IN_KeyEvent` 在菜单可见时消费数字导航键
+的按下与释放，防止底层游戏绑定同时触发。
+
 `L4N::Env` 当前读取：
 
 - `l4n_game_hud_visible`
@@ -183,11 +187,12 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 |---|---|
 | `kpatch.ini` | 相对工作目录读取；先读取 `[AdsSupport] enableAdsSupport`，仓库模板没有该段 |
 | `[System] debug` | 会被解析，但不控制当前调试开关 |
-| `necola\FeatureConfig.json` | 相对工作目录读取/写入，保存 ADS 和 SequenceModify 配置 |
+| `necola\FeatureConfig.json` | 相对工作目录读取/写入，保存 ADS、SequenceModify 和 Menu 配置 |
 | `NECOLA_ADS_DEBUG` | 只要环境变量存在，就启用控制台和 spdlog 详细输出 |
 | `L4N-Necola-ADS-diag.log` | 位于宿主 exe 目录；关键里程碑始终写入 |
 
-JSON 写入目前直接截断目标文件，异常被静默吞掉；路径依赖进程工作目录，而不是 DLL 目录。
+JSON 保存使用同目录临时文件和 `MoveFileEx(..., MOVEFILE_REPLACE_EXISTING)` 替换，避免直接截断正式
+文件；解析失败时后续菜单保存会拒绝覆盖。路径仍依赖进程工作目录，而不是 DLL 目录。
 若 JSON 包含 `AdsSupport`，后执行的 `AdsMgr.LoadConfig()` 会覆盖 INI 读入的 ADS 开关，因此已有
 JSON 配置时 INI 通常不是最终权威值。
 

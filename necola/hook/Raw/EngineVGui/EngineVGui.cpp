@@ -87,6 +87,12 @@ void __fastcall EngineVGui::Paint::Detour(void* ecx, void* edx, int mode)
 		}
 
 		// In-game menu drawing
+		if (F::MenuMgr.IsVisible() && I::MatSystemSurface) {
+			int width = 0;
+			int height = 0;
+			I::MatSystemSurface->GetScreenSize(width, height);
+			F::MenuMgr.SetScreenSize(width, height);
+		}
 		F::MenuMgr.Draw();
 	}
 }

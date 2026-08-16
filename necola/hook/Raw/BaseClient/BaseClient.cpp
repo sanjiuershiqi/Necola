@@ -8,6 +8,14 @@
 
 using namespace Hooks;
 
+namespace {
+int MenuDigitFromButton(int keynum) {
+	if (keynum >= KEY_0 && keynum <= KEY_9) return keynum - KEY_0;
+	if (keynum >= KEY_PAD_0 && keynum <= KEY_PAD_9) return keynum - KEY_PAD_0;
+	return -1;
+}
+}
+
 void __fastcall BaseClient::LevelInitPreEntity::Detour(void* ecx, void* edx, char const* pMapName)
 {
 	Table.Original<FN>(Index)(ecx, edx, pMapName);
@@ -44,35 +52,34 @@ void __fastcall BaseClient::FrameStageNotify::Detour(void* ecx, void* edx, Clien
 
 int __fastcall BaseClient::IN_KeyEvent::Detour(void* ecx, void* edx, int eventcode, int keynum, const char* pszCurrentBinding)
 {
-	// Toggle / navigate menu via number keys / F/P
-	if((keynum == 70 || keynum == 57) && F::MenuMgr.IsVisible() && eventcode == 1) {
-		F::MenuMgr.Toggle();
-	}
-	if((keynum > 0 && keynum < 11) && eventcode == 1) {
-		if(F::MenuMgr.IsVisible()) {
-			F::MenuMgr.ProcessKey(keynum - 1);
+	// Consume both press and release while the menu owns a navigation key, so
+	// gameplay binds do not fire underneath the overlay.
+	if (F::MenuMgr.IsVisible()) {
+		const int digit = MenuDigitFromButton(keynum);
+		if (digit >= 0) {
+			if (eventcode == 0) F::MenuMgr.ProcessKey(digit);
+			return 0;
+		}
+		if (keynum == KEY_ESCAPE || keynum == KEY_ENTER || keynum == KEY_PAD_ENTER) {
+			if (eventcode == 0) F::MenuMgr.ProcessKey(0);
 			return 0;
 		}
 	}
 
 	// ADS zoom / mixed toggle
 	if (G::Vars.enableAdsSupport && pszCurrentBinding) {
-		if (strcmp(pszCurrentBinding, "+zoom") == 0 && eventcode == 1) {
-			C_TerrorPlayer* pLocalAds = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer())->As<C_TerrorPlayer*>();
-			if (pLocalAds && !pLocalAds->deadflag()) {
-				C_TerrorWeapon* pWeaponAds = pLocalAds->GetActiveWeapon()->As<C_TerrorWeapon*>();
-				if (pWeaponAds && F::AdsMgr.ShouldBlockNativeZoom(pWeaponAds->GetWeaponID())) {
-					F::AdsMgr.OnZoomPressed();
-					if (F::AdsMgr.HasAdsAnimations()) {
-						return 0;
-					}
-				} else {
-					F::AdsMgr.OnZoomPressed();
-				}
-			} else {
-				F::AdsMgr.OnZoomPressed();
+		if (strcmp(pszCurrentBinding, "+zoom") == 0) {
+			bool blockNativeZoom = false;
+			if (I::EngineClient && I::ClientEntityList) {
+				auto* localEntity = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer());
+				C_TerrorPlayer* local = localEntity ? localEntity->As<C_TerrorPlayer*>() : nullptr;
+				auto* activeWeapon = local && !local->deadflag() ? local->GetActiveWeapon() : nullptr;
+				C_TerrorWeapon* weapon = activeWeapon ? activeWeapon->As<C_TerrorWeapon*>() : nullptr;
+				blockNativeZoom = weapon && F::AdsMgr.ShouldBlockNativeZoom(weapon->GetWeaponID());
 			}
-		} else if (strcmp(pszCurrentBinding, "+use") == 0 && eventcode == 1) {
+			if (eventcode == 0) F::AdsMgr.OnZoomPressed();
+			if (blockNativeZoom && F::AdsMgr.HasAdsAnimations()) return 0;
+		} else if (strcmp(pszCurrentBinding, "+use") == 0 && eventcode == 0) {
 			// +use triggers MIXED pipeline state toggle in any state (normal or ADS)
 			F::AdsMgr.OnMixedPressed();
 		}

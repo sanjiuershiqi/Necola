@@ -95,6 +95,8 @@ just install   # 先修改 justfile 的硬编码 TARGET;当前默认值不是官
 4. 正常通过 Steam / `left4dead2.exe` 启动游戏。L4N 会自动加载本插件。
 5. 游戏内:
    - 控制台执行 `necola_menu` 打开菜单,在 "ADS功能" 子菜单启用 ADS。
+   - 菜单使用数字键 `1`-`7` 选择、`8`/`9` 翻页、`0`/Enter/Esc 返回；数字小键盘同样可用。
+   - "诊断与工具" 可切换 ADS/序列日志或立即退出 ADS 状态；"菜单外观" 可保存左/中/右位置和背景透明度。
    - 绑定按键到 `necola_ads` / `necola_ads_mixed` / `necola_ads_foreceback` / `necola_ads_back` 控制开镜状态。
 
 ### ADS 控制台命令

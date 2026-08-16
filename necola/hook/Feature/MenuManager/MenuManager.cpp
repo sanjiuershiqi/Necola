@@ -44,7 +44,7 @@ void InGameMenu::ToggleNecolaMenu(int* a1) {
 void InGameMenu::InitMenuFonts() {
 	if(I::MatSystemSurface) {
 		inGameMenuFONT = I::MatSystemSurface->CreateFont();
-		I::MatSystemSurface->SetFontGlyphSet(inGameMenuFONT, "Microsoft YaHei", 25, 700, 0, 0, FONTFLAG_OUTLINE, 0, 0);
+		I::MatSystemSurface->SetFontGlyphSet(inGameMenuFONT, "Microsoft YaHei", 22, 600, 0, 0, FONTFLAG_OUTLINE, 0, 0);
 	}
 }
 
@@ -54,14 +54,16 @@ void InGameMenu::InitConfigSwitches() {
 	PrependSwitchToMenu("seq", "忽略单喷开火/推击的多动作", G::Vars.ignoreShotgunSequence, [](bool enabled) {
 		G::Vars.ignoreShotgunSequence = enabled;
 		nlohmann::json doc = NecolaConfig::LoadConfig();
-		doc["SequenceModify"]["IgnoreShotgunSequence"] = enabled;
+		NecolaConfig::EnsureSectionObject(doc, "SequenceModify")["IgnoreShotgunSequence"] = enabled;
 		NecolaConfig::SaveConfig(doc);
+		F::MenuMgr.RefreshRootLabels();
 	});
 	PrependSwitchToMenu("seq", "服务器多动作序列修正", G::Vars.animSequenceModify, [](bool enabled) {
 		G::Vars.animSequenceModify = enabled;
 		nlohmann::json doc = NecolaConfig::LoadConfig();
-		doc["SequenceModify"]["AnimSequenceModify"] = enabled;
+		NecolaConfig::EnsureSectionObject(doc, "SequenceModify")["AnimSequenceModify"] = enabled;
 		NecolaConfig::SaveConfig(doc);
+		F::MenuMgr.RefreshRootLabels();
 	});
 
 	// Sync ADS menu switch states from loaded config
@@ -86,17 +88,17 @@ void InGameMenu::InitConfigSwitches() {
 				crosshairMenu->setSwitchStateByName("双持手枪", G::Vars.adsHideCrosshairPistolDual);
 				crosshairMenu->setSwitchStateByName("UZI", G::Vars.adsHideCrosshairUzi);
 				crosshairMenu->setSwitchStateByName("木喷", G::Vars.adsHideCrosshairPumpShotgun);
-				crosshairMenu->setSwitchStateByName("连喷", G::Vars.adsHideCrosshairAutoShotgun);
+				crosshairMenu->setSwitchStateByName("一代连喷", G::Vars.adsHideCrosshairAutoShotgun);
 				crosshairMenu->setSwitchStateByName("M16", G::Vars.adsHideCrosshairM16A1);
-				crosshairMenu->setSwitchStateByName("15连", G::Vars.adsHideCrosshairHuntingRifle);
+				crosshairMenu->setSwitchStateByName("一代连狙", G::Vars.adsHideCrosshairHuntingRifle);
 				crosshairMenu->setSwitchStateByName("MAC10", G::Vars.adsHideCrosshairMac10);
 				crosshairMenu->setSwitchStateByName("铁喷", G::Vars.adsHideCrosshairChromeShotgun);
 				crosshairMenu->setSwitchStateByName("SCAR", G::Vars.adsHideCrosshairScar);
-				crosshairMenu->setSwitchStateByName("30连", G::Vars.adsHideCrosshairMilitarySniper);
-				crosshairMenu->setSwitchStateByName("SPAS", G::Vars.adsHideCrosshairSpas);
+				crosshairMenu->setSwitchStateByName("二代连狙", G::Vars.adsHideCrosshairMilitarySniper);
+				crosshairMenu->setSwitchStateByName("二代连喷", G::Vars.adsHideCrosshairSpas);
 				crosshairMenu->setSwitchStateByName("榴弹发射器", G::Vars.adsHideCrosshairGrenadeLauncher);
 				crosshairMenu->setSwitchStateByName("AK47", G::Vars.adsHideCrosshairAK47);
-				crosshairMenu->setSwitchStateByName("沙鹰", G::Vars.adsHideCrosshairDeagle);
+				crosshairMenu->setSwitchStateByName("马格南", G::Vars.adsHideCrosshairDeagle);
 				crosshairMenu->setSwitchStateByName("MP5", G::Vars.adsHideCrosshairMP5);
 				crosshairMenu->setSwitchStateByName("SG552", G::Vars.adsHideCrosshairSSG552);
 				crosshairMenu->setSwitchStateByName("AWP", G::Vars.adsHideCrosshairAWP);
@@ -120,6 +122,24 @@ void InGameMenu::InitConfigSwitches() {
 				scopeWeaponMenu->updateSubMenuItemName("ads_scout", "SCOUT ADS设置 [" + scopeLabel(G::Vars.adsScopeScout) + "]");
 				scopeWeaponMenu->updateSubMenuItemName("ads_awp", "AWP ADS设置 [" + scopeLabel(G::Vars.adsScopeAWP) + "]");
 			}
+			auto setScopeTitle = [this, scopeLabel](const char* menuId, const char* weaponName, int mode) {
+				auto menu = FindMenuById(menuId);
+				if (menu) menu->setTitle(std::string(weaponName) + " ADS设置 / " + scopeLabel(mode));
+			};
+			setScopeTitle("ads_ssg552", "SG552", G::Vars.adsScopeSSG552);
+			setScopeTitle("ads_hunting_rifle", "一代连狙", G::Vars.adsScopeHuntingRifle);
+			setScopeTitle("ads_military_sniper", "二代连狙", G::Vars.adsScopeMilitarySniper);
+			setScopeTitle("ads_scout", "SCOUT", G::Vars.adsScopeScout);
+			setScopeTitle("ads_awp", "AWP", G::Vars.adsScopeAWP);
 		}
 	}
+
+	auto toolsMenu = FindMenuById("tools");
+	if (toolsMenu) {
+		toolsMenu->setSwitchStateByName("ADS详细日志", G::Vars.adsLog);
+		toolsMenu->setSwitchStateByName("序列详细日志", G::Vars.sequenceLog);
+	}
+	RefreshRootLabels();
+	RefreshCrosshairModeUI();
+	RefreshAppearanceLabels();
 }

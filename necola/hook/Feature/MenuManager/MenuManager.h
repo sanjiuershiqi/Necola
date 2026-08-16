@@ -7,6 +7,8 @@
 #include <memory>
 #include <stack>
 #include <cmath>
+#include <algorithm>
+#include <unordered_map>
 
 #include <spdlog/spdlog.h>
 
@@ -16,8 +18,9 @@
 
 using json = nlohmann::json;
 
-const int MENU_WIDTH = 480;
-const int MENU_HEIGHT = 340;
+const int MENU_MIN_WIDTH = 420;
+const int MENU_MAX_WIDTH = 560;
+const int MENU_HEIGHT = 350;
 const int LINE_HEIGHT = 30;
 const int TOTAL_LINES = 11;
 const int TITLE_LINE = 0;
@@ -26,18 +29,17 @@ const int OPTION_END_LINE = 7;
 const int NAV_START_LINE = 8;
 const int MAX_OPTIONS_PER_PAGE = 7;
 
-const Color C_COLOR_BACKGROUND = {30, 30, 30, 230};
-const Color C_COLOR_BORDER = {200, 200, 200, 150};
-const Color C_COLOR_TEXT = {255, 255, 255, 255};
-const Color C_COLOR_TEXT_DISABLED = {150, 150, 150, 200};
-const Color C_COLOR_SWITCH_ON = {50, 255, 50, 255};
-const Color C_COLOR_SWITCH_OFF = {255, 50, 50, 255};
-const Color C_COLOR_SUBMENU = {100, 200, 255, 255};
-const Color C_COLOR_NAV_ENABLED = {200, 200, 100, 255};
-const Color C_COLOR_NAV_DISABLED = {100, 100, 100, 150};
-const Color C_COLOR_RETURN = {255, 150, 150, 255};
-const Color C_COLOR_LINE = {100, 100, 100, 200};
-const Color C_COLOR_LINE_NAV = {80, 80, 80, 200};
+const Color C_COLOR_BORDER = {90, 110, 120, 230};
+const Color C_COLOR_TEXT = {238, 242, 244, 255};
+const Color C_COLOR_TEXT_DISABLED = {125, 132, 136, 210};
+const Color C_COLOR_SWITCH_ON = {92, 214, 141, 255};
+const Color C_COLOR_SWITCH_OFF = {232, 112, 104, 255};
+const Color C_COLOR_SUBMENU = {102, 190, 214, 255};
+const Color C_COLOR_NAV_ENABLED = {228, 197, 105, 255};
+const Color C_COLOR_NAV_DISABLED = {100, 106, 110, 170};
+const Color C_COLOR_RETURN = {235, 164, 125, 255};
+const Color C_COLOR_LINE = {72, 82, 88, 220};
+const Color C_COLOR_LINE_NAV = {62, 70, 75, 220};
 const Color C_COLOR_FLASH_YELLOW = {255, 255, 0, 255};
 const Color C_COLOR_FLASH_GREEN = {0, 255, 0, 255};
 
@@ -212,6 +214,12 @@ public:
 		return false;
 	}
 
+	void setSwitchesEnabled(bool state) {
+		for (auto& item : items) {
+			if (item.type == ITEM_SWITCH) item.enabled = state;
+		}
+	}
+
 	void clearAllItems() {
 		items.clear();
 		currentPage = 0;
@@ -230,9 +238,12 @@ private:
 	bool isVisible = false;
 	int menuX = 0;
 	int menuY = 0;
+	int menuWidth = MENU_MAX_WIDTH;
+	int menuHeight = MENU_HEIGHT;
 
 	int screenWidth = 1920;
 	int screenHeight = 1080;
+	bool layoutFits = true;
 
 	int flashingItemIndex = -1;
 	float flashStartTime = 0.0f;
@@ -250,9 +261,52 @@ public:
 
 
 	void SetScreenSize(int width, int height) {
-		screenWidth = width;
-		screenHeight = height;
+		screenWidth = std::max(width, 1);
+		screenHeight = std::max(height, 1);
+		layoutFits = screenWidth >= MENU_MIN_WIDTH + 32 && screenHeight >= MENU_HEIGHT + 16;
+		menuWidth = std::min(MENU_MAX_WIDTH, std::max(MENU_MIN_WIDTH, screenWidth - 32));
+		if (!layoutFits) isVisible = false;
 		UpdatePosition();
+	}
+
+	void LoadConfig(const nlohmann::json& doc) {
+		const auto section = doc.find("Menu");
+		if (section != doc.end() && section->is_object()) {
+			const auto anchor = section->find("Anchor");
+			if (anchor != section->end() && anchor->is_number_integer()) {
+				try {
+					if (anchor->is_number_unsigned()) {
+						const auto value = anchor->get<nlohmann::json::number_unsigned_t>();
+						if (value <= 2) G::Vars.menuAnchor = static_cast<int>(value);
+					} else {
+						const auto value = anchor->get<nlohmann::json::number_integer_t>();
+						G::Vars.menuAnchor = static_cast<int>(std::clamp<nlohmann::json::number_integer_t>(value, 0, 2));
+					}
+				} catch (...) {}
+			}
+			const auto opacity = section->find("BackgroundOpacity");
+			if (opacity != section->end() && opacity->is_number_integer()) {
+				try {
+					if (opacity->is_number_unsigned()) {
+						const auto value = opacity->get<nlohmann::json::number_unsigned_t>();
+						if (value <= 255) G::Vars.menuOpacity = static_cast<int>(std::clamp<nlohmann::json::number_unsigned_t>(value, 160, 245));
+					} else {
+						const auto value = opacity->get<nlohmann::json::number_integer_t>();
+						G::Vars.menuOpacity = static_cast<int>(std::clamp<nlohmann::json::number_integer_t>(value, 160, 245));
+					}
+				} catch (...) {}
+			}
+		}
+		UpdatePosition();
+		RefreshAppearanceLabels();
+	}
+
+	void SaveMenuConfig() {
+		nlohmann::json doc = NecolaConfig::LoadConfig();
+		auto& menuConfig = NecolaConfig::EnsureSectionObject(doc, "Menu");
+		menuConfig["Anchor"] = G::Vars.menuAnchor;
+		menuConfig["BackgroundOpacity"] = G::Vars.menuOpacity;
+		NecolaConfig::SaveConfig(doc);
 	}
 
 	void Toggle() {
@@ -270,15 +324,15 @@ public:
 
 	void initializeDefaultMenus() {
 		// SequenceModify submenu (required by ADS layer for sequence tracking)
-		auto seqMenu = rootMenu->addSubMenu("序列修正", "seq", "序列修正");
+		auto seqMenu = rootMenu->addSubMenu("序列修正 [关]", "seq", "序列修正");
 		registerMenu(seqMenu);
 
 		// Only register the ADS sub-tree
-		auto adsMenu = rootMenu->addSubMenu("ADS功能", "ads", "ADS功能");
+		auto adsMenu = rootMenu->addSubMenu("ADS功能 [关]", "ads", "ADS功能");
 		registerMenu(adsMenu);
 
 		if (adsMenu) {
-			adsMenu->addSwitch("启用ADS", G::Vars.enableAdsSupport, [](bool state) {
+			adsMenu->addSwitch("启用ADS", G::Vars.enableAdsSupport, [this](bool state) {
 				G::Vars.enableAdsSupport = state;
 				if (state) {
 					F::AdsMgr.Init();
@@ -288,6 +342,7 @@ public:
 				nlohmann::json doc = NecolaConfig::LoadConfig();
 				F::AdsMgr.SaveConfig(doc);
 				NecolaConfig::SaveConfig(doc);
+				RefreshRootLabels();
 			});
 
 			// Per-weapon ADS crosshair hide submenu
@@ -305,29 +360,26 @@ public:
 				auto crosshairMenu = adsMenu->addSubMenu(chLabel, "ads_crosshair", "ADS状态隐藏准星");
 				registerMenu(crosshairMenu);
 				if (crosshairMenu) {
-					crosshairMenu->addOption("全局关", [this, crosshairModeLabel]() {
+					crosshairMenu->addOption("全局关", [this]() {
 						G::Vars.adsHideCrosshairMode = 0;
 						nlohmann::json doc = NecolaConfig::LoadConfig();
 						F::AdsMgr.SaveConfig(doc);
 						NecolaConfig::SaveConfig(doc);
-						auto a = FindMenuById("ads");
-						if (a) a->updateSubMenuItemName("ads_crosshair", "ADS状态隐藏准星 [" + crosshairModeLabel(0) + "]");
+						RefreshCrosshairModeUI();
 					});
-					crosshairMenu->addOption("全局开", [this, crosshairModeLabel]() {
+					crosshairMenu->addOption("全局开", [this]() {
 						G::Vars.adsHideCrosshairMode = 1;
 						nlohmann::json doc = NecolaConfig::LoadConfig();
 						F::AdsMgr.SaveConfig(doc);
 						NecolaConfig::SaveConfig(doc);
-						auto a = FindMenuById("ads");
-						if (a) a->updateSubMenuItemName("ads_crosshair", "ADS状态隐藏准星 [" + crosshairModeLabel(1) + "]");
+						RefreshCrosshairModeUI();
 					});
-					crosshairMenu->addOption("自定义", [this, crosshairModeLabel]() {
+					crosshairMenu->addOption("自定义", [this]() {
 						G::Vars.adsHideCrosshairMode = 2;
 						nlohmann::json doc = NecolaConfig::LoadConfig();
 						F::AdsMgr.SaveConfig(doc);
 						NecolaConfig::SaveConfig(doc);
-						auto a = FindMenuById("ads");
-						if (a) a->updateSubMenuItemName("ads_crosshair", "ADS状态隐藏准星 [" + crosshairModeLabel(2) + "]");
+						RefreshCrosshairModeUI();
 					});
 
 					struct WeaponCrosshairEntry {
@@ -575,6 +627,111 @@ public:
 				}
 			}
 		}
+
+		auto toolsMenu = rootMenu->addSubMenu("诊断与工具", "tools", "诊断与工具");
+		registerMenu(toolsMenu);
+		if (toolsMenu) {
+			toolsMenu->addSwitch("ADS详细日志", G::Vars.adsLog, [](bool state) {
+				G::Vars.adsLog = state;
+				nlohmann::json doc = NecolaConfig::LoadConfig();
+				F::AdsMgr.SaveConfig(doc);
+				NecolaConfig::SaveConfig(doc);
+			});
+			toolsMenu->addSwitch("序列详细日志", G::Vars.sequenceLog, [](bool state) {
+				G::Vars.sequenceLog = state;
+				nlohmann::json doc = NecolaConfig::LoadConfig();
+				NecolaConfig::EnsureSectionObject(doc, "SequenceModify")["SequenceLog"] = state;
+				NecolaConfig::SaveConfig(doc);
+			});
+			toolsMenu->addOption("立即退出 ADS / MIXED", []() {
+				F::AdsMgr.ForceExitADS();
+			});
+		}
+
+		auto appearanceMenu = rootMenu->addSubMenu("菜单外观", "menu_appearance", "菜单外观");
+		registerMenu(appearanceMenu);
+		if (appearanceMenu) {
+			auto anchorMenu = appearanceMenu->addSubMenu("界面位置", "menu_anchor", "界面位置");
+			registerMenu(anchorMenu);
+			if (anchorMenu) {
+				anchorMenu->addOption("左侧", [this]() { SetMenuAnchor(0); });
+				anchorMenu->addOption("居中", [this]() { SetMenuAnchor(1); });
+				anchorMenu->addOption("右侧", [this]() { SetMenuAnchor(2); });
+			}
+
+			auto opacityMenu = appearanceMenu->addSubMenu("背景透明度", "menu_opacity", "背景透明度");
+			registerMenu(opacityMenu);
+			if (opacityMenu) {
+				opacityMenu->addOption("轻透", [this]() { SetMenuOpacity(180); });
+				opacityMenu->addOption("标准", [this]() { SetMenuOpacity(220); });
+				opacityMenu->addOption("高对比", [this]() { SetMenuOpacity(245); });
+			}
+		}
+
+		RefreshRootLabels();
+		RefreshCrosshairModeUI();
+		RefreshAppearanceLabels();
+	}
+
+	void SetMenuAnchor(int anchor) {
+		G::Vars.menuAnchor = std::clamp(anchor, 0, 2);
+		UpdatePosition();
+		RefreshAppearanceLabels();
+		SaveMenuConfig();
+	}
+
+	void SetMenuOpacity(int opacity) {
+		G::Vars.menuOpacity = std::clamp(opacity, 160, 245);
+		RefreshAppearanceLabels();
+		SaveMenuConfig();
+	}
+
+	void RefreshRootLabels() {
+		if (!rootMenu) return;
+		rootMenu->updateSubMenuItemName("ads", std::string("ADS功能 [") +
+			(G::Vars.enableAdsSupport ? "开]" : "关]"));
+		rootMenu->updateSubMenuItemName("seq", std::string("序列修正 [") +
+			(G::Vars.animSequenceModify ? "开]" : "关]"));
+	}
+
+	void RefreshCrosshairModeUI() {
+		G::Vars.adsHideCrosshairMode = std::clamp(G::Vars.adsHideCrosshairMode, 0, 2);
+		const char* labels[] = {"关", "全局", "自定义"};
+		const char* label = labels[G::Vars.adsHideCrosshairMode];
+		auto adsMenu = FindMenuById("ads");
+		if (adsMenu) {
+			adsMenu->updateSubMenuItemName("ads_crosshair", std::string("ADS状态隐藏准星 [") + label + "]");
+		}
+		auto crosshairMenu = FindMenuById("ads_crosshair");
+		if (!crosshairMenu) return;
+		crosshairMenu->setTitle(std::string("ADS状态隐藏准星 / ") + label);
+		crosshairMenu->updateOptionNameByPrefix("全局关", std::string("全局关") + (G::Vars.adsHideCrosshairMode == 0 ? " [当前]" : ""));
+		crosshairMenu->updateOptionNameByPrefix("全局开", std::string("全局开") + (G::Vars.adsHideCrosshairMode == 1 ? " [当前]" : ""));
+		crosshairMenu->updateOptionNameByPrefix("自定义", std::string("自定义") + (G::Vars.adsHideCrosshairMode == 2 ? " [当前]" : ""));
+		crosshairMenu->setSwitchesEnabled(G::Vars.adsHideCrosshairMode == 2);
+	}
+
+	void RefreshAppearanceLabels() {
+		const char* anchorLabels[] = {"左侧", "居中", "右侧"};
+		G::Vars.menuAnchor = std::clamp(G::Vars.menuAnchor, 0, 2);
+		auto appearance = FindMenuById("menu_appearance");
+		if (appearance) {
+			appearance->updateSubMenuItemName("menu_anchor", std::string("界面位置 [") + anchorLabels[G::Vars.menuAnchor] + "]");
+			const char* opacityLabel = G::Vars.menuOpacity <= 190 ? "轻透" : (G::Vars.menuOpacity >= 235 ? "高对比" : "标准");
+			appearance->updateSubMenuItemName("menu_opacity", std::string("背景透明度 [") + opacityLabel + "]");
+		}
+		auto anchorMenu = FindMenuById("menu_anchor");
+		if (anchorMenu) {
+			anchorMenu->updateOptionNameByPrefix("左侧", std::string("左侧") + (G::Vars.menuAnchor == 0 ? " [当前]" : ""));
+			anchorMenu->updateOptionNameByPrefix("居中", std::string("居中") + (G::Vars.menuAnchor == 1 ? " [当前]" : ""));
+			anchorMenu->updateOptionNameByPrefix("右侧", std::string("右侧") + (G::Vars.menuAnchor == 2 ? " [当前]" : ""));
+		}
+		auto opacityMenu = FindMenuById("menu_opacity");
+		if (opacityMenu) {
+			opacityMenu->updateOptionNameByPrefix("轻透", std::string("轻透") + (G::Vars.menuOpacity <= 190 ? " [当前]" : ""));
+			opacityMenu->updateOptionNameByPrefix("标准", std::string("标准") + (G::Vars.menuOpacity > 190 && G::Vars.menuOpacity < 235 ? " [当前]" : ""));
+			opacityMenu->updateOptionNameByPrefix("高对比", std::string("高对比") + (G::Vars.menuOpacity >= 235 ? " [当前]" : ""));
+		}
 	}
 
 
@@ -621,9 +778,7 @@ public:
 		auto parentMenu = FindMenuById(parentMenuId);
 		if (!parentMenu) return nullptr;
 
-		auto newMenu = std::make_shared<MenuNode>(newMenuId, newMenuTitle);
-		parentMenu->addSubMenu(newMenuTitle, newMenuId, newMenuTitle);
-
+		auto newMenu = parentMenu->addSubMenu(newMenuTitle, newMenuId, newMenuTitle);
 		registerMenu(newMenu);
 		return newMenu;
 	}
@@ -685,7 +840,7 @@ public:
 
 
 	void Draw() {
-		if (!isVisible || menuStack.empty()) return;
+		if (!isVisible || menuStack.empty() || !layoutFits) return;
 
 		auto currentMenu = menuStack.top();
 		auto pageItems = currentMenu->getCurrentPageItems();
@@ -739,23 +894,24 @@ public:
 	}
 
 	void DrawBackground() {
-		EngineDrawFilledRect(menuX, menuY, menuX + MENU_WIDTH, menuY + MENU_HEIGHT, C_COLOR_BACKGROUND);
-		EngineDrawOutlinedRect(menuX, menuY, menuX + MENU_WIDTH, menuY + MENU_HEIGHT, C_COLOR_BORDER);
+		EngineDrawFilledRect(menuX + 5, menuY + 5, menuX + menuWidth + 5, menuY + menuHeight + 5, Color{0, 0, 0, 120});
+		EngineDrawFilledRect(menuX, menuY, menuX + menuWidth, menuY + menuHeight,
+			Color{24, 28, 30, G::Vars.menuOpacity});
+		EngineDrawFilledRect(menuX + 1, menuY + 1, menuX + menuWidth - 1, menuY + LINE_HEIGHT,
+			Color{35, 48, 54, std::min(255, G::Vars.menuOpacity + 10)});
+		EngineDrawFilledRect(menuX + 1, menuY + NAV_START_LINE * LINE_HEIGHT,
+			menuX + menuWidth - 1, menuY + menuHeight - 1,
+			Color{20, 23, 25, std::min(255, G::Vars.menuOpacity + 5)});
+		EngineDrawOutlinedRect(menuX, menuY, menuX + menuWidth, menuY + menuHeight, C_COLOR_BORDER);
 	}
 
 
 	void DrawTitleLine(std::shared_ptr<MenuNode> menu, int currentPage, int totalPages) {
 		std::string title = menu->getTitle();
-		if (menuStack.size() > 1) {
-			auto tempStack = menuStack;
-			tempStack.pop();
-			if (!tempStack.empty()) {
-				title = tempStack.top()->getTitle() + " > " + title;
-			}
-		}
+		if (totalPages > 1) title += "  [" + std::to_string(currentPage + 1) + "/" + std::to_string(totalPages) + "]";
 		EngineDrawText(title.c_str(), menuX + 10, menuY + TITLE_LINE * LINE_HEIGHT + 5, C_COLOR_TEXT );
 
-		EngineDrawLine(menuX + 10, menuY + LINE_HEIGHT - 2,  menuX + MENU_WIDTH - 10, menuY + LINE_HEIGHT - 2, C_COLOR_TEXT);
+		EngineDrawLine(menuX + 8, menuY + LINE_HEIGHT, menuX + menuWidth - 8, menuY + LINE_HEIGHT, C_COLOR_LINE);
 	}
 
 	void DrawOptionLines(const std::vector<MenuItem>& pageItems) {
@@ -776,10 +932,18 @@ public:
 	}
 
 	void DrawMenuItem(int x, int y, const MenuItem& item, int index, int actualIndex) {
+		const Color rowColor = (index % 2 == 0) ? Color{37, 41, 43, 125} : Color{31, 35, 37, 105};
+		EngineDrawFilledRect(menuX + 8, y - 3, menuX + menuWidth - 8, y + LINE_HEIGHT - 4, rowColor);
+		if (!item.enabled) {
+			std::string itemText = "[" + std::to_string(index) + "] " + item.name;
+			EngineDrawText(itemText.c_str(), x, y, C_COLOR_TEXT_DISABLED);
+			return;
+		}
 		if (item.type == ITEM_SWITCH) {
-			std::string statusText = item.switchState ? "【开】" : "【关】";
-			std::string itemText = "[" + std::to_string(index) + "] " +  item.name + " " +  statusText;
+			std::string statusText = item.switchState ? "[开]" : "[关]";
+			std::string itemText = "[" + std::to_string(index) + "] " + item.name + "  " + statusText;
 			if (item.switchState) {
+				EngineDrawFilledRect(menuX + 8, y - 3, menuX + 11, y + LINE_HEIGHT - 4, C_COLOR_SWITCH_ON);
 				EngineDrawText(itemText.c_str(), x, y, C_COLOR_SWITCH_ON );
 			} else {
 				EngineDrawText(itemText.c_str(), x, y, C_COLOR_SWITCH_OFF );
@@ -790,7 +954,7 @@ public:
 				itemText = itemText + " >";
 			}
 
-			Color textColor = C_COLOR_TEXT;
+			Color textColor = item.subMenu ? C_COLOR_SUBMENU : C_COLOR_TEXT;
 			if (flashingItemIndex == actualIndex && item.type == ITEM_NORMAL) {
 				textColor = flashYellow ? C_COLOR_FLASH_YELLOW : C_COLOR_FLASH_GREEN;
 			}
@@ -801,24 +965,21 @@ public:
 
 	void DrawNavigationLines( int currentPage, int totalPages) {
 		int line8 = NAV_START_LINE;
-		bool canPrev = currentPage > 0 && (currentPage != totalPages);
-		if(canPrev) {
-
-			EngineDrawText("[8] 上一页", menuX  + 15, menuY + line8 * LINE_HEIGHT + 5, Color{200, 200, 100, 255});
-		}
+		bool canPrev = currentPage > 0;
+		EngineDrawText("[8] 上一页", menuX + 15, menuY + line8 * LINE_HEIGHT + 5,
+			canPrev ? C_COLOR_NAV_ENABLED : C_COLOR_NAV_DISABLED);
 
 		int line9 = NAV_START_LINE + 1;
 		bool canNext = currentPage < totalPages - 1;
-		if(canNext) {
-			EngineDrawText("[9] 下一页", menuX  + 15, menuY + line9 * LINE_HEIGHT + 5, Color{200, 200, 100, 255});
-		}
+		EngineDrawText("[9] 下一页", menuX + 15, menuY + line9 * LINE_HEIGHT + 5,
+			canNext ? C_COLOR_NAV_ENABLED : C_COLOR_NAV_DISABLED);
 
 		int line0 = NAV_START_LINE + 2;
 		bool isMainMenu = menuStack.size() == 1;
 		if(isMainMenu) {
-			EngineDrawText("[0] 关闭", menuX  + 15, menuY + line0 * LINE_HEIGHT + 5, Color{200, 200, 100, 255});
+			EngineDrawText("[0] 关闭", menuX + 15, menuY + line0 * LINE_HEIGHT + 5, C_COLOR_RETURN);
 		} else {
-			EngineDrawText("[0] 返回", menuX  + 15, menuY + line0 * LINE_HEIGHT + 5, Color{200, 200, 100, 255});
+			EngineDrawText("[0] 返回", menuX + 15, menuY + line0 * LINE_HEIGHT + 5, C_COLOR_RETURN);
 		}
 
 	}
@@ -827,9 +988,16 @@ public:
 
 	private:
 		void UpdatePosition() {
-			const int LEFT_MARGIN = 10;
-			menuX = LEFT_MARGIN;
-			menuY = (screenHeight - MENU_HEIGHT) / 2;
+			const int margin = 16;
+			if (G::Vars.menuAnchor == 1) {
+				menuX = (screenWidth - menuWidth) / 2;
+			} else if (G::Vars.menuAnchor == 2) {
+				menuX = screenWidth - menuWidth - margin;
+			} else {
+				menuX = margin;
+			}
+			menuX = std::max(margin, menuX);
+			menuY = std::max(8, (screenHeight - menuHeight) / 2);
 		}
 
 		void registerMenu(std::shared_ptr<MenuNode> menu) {

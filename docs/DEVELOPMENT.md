@@ -110,8 +110,20 @@ necola\FeatureConfig.json
 若游戏工作目录是根目录，通常解析为 `<L4D2>/necola/FeatureConfig.json`，不是
 `<L4D2>/neko/FeatureConfig.json`。
 
-文件保存 ADS 和 SequenceModify 配置。读取失败返回空 JSON；保存失败被静默忽略，且当前写入
-不是原子的。
+文件保存 ADS、SequenceModify 和菜单外观配置。模式值会限制在合法范围，错误字段类型回退到默认值。
+保存先写 `FeatureConfig.json.tmp`，再通过 `MoveFileEx` 替换正式文件；若现有 JSON 无法解析，菜单
+操作不会用空配置覆盖损坏文件。I/O 失败当前仍只静默保留旧文件。
+
+菜单新增持久化字段：
+
+```json
+"Menu": {
+    "Anchor": 0,
+    "BackgroundOpacity": 220
+}
+```
+
+`Anchor` 为 `0=左侧`、`1=居中`、`2=右侧`，透明度限制在 `160..245`。
 
 ### 3.3 按键绑定
 
@@ -135,6 +147,8 @@ bind MOUSE3 necola_ads
 语法，插件命令出现在设置菜单中的时序应在目标版本实测。
 
 Necola 不读取 `FeatureConfig.json` 中的 `KeyBinds` 数组，也不会自动执行 `bind`。
+
+菜单打开时会消费数字键及数字小键盘的按下/释放，避免游戏绑定穿透；`0`、Enter、Esc 返回。
 
 ## 四、日志与调试
 

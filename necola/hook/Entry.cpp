@@ -227,11 +227,16 @@ static bool RunLoadBody()
 	{
 		nlohmann::json doc = NecolaConfig::LoadConfig();
 		F::AdsMgr.LoadConfig(doc);
-		if (doc.contains("SequenceModify")) {
-			G::Vars.sequenceLog = doc["SequenceModify"].value("SequenceLog", false);
-			G::Vars.animSequenceModify = doc["SequenceModify"].value("AnimSequenceModify", false);
-			G::Vars.ignoreShotgunSequence = doc["SequenceModify"].value("IgnoreShotgunSequence", false);
+		if (const auto it = doc.find("SequenceModify"); it != doc.end() && it->is_object()) {
+			auto readBool = [it](const char* key, bool fallback) {
+				const auto value = it->find(key);
+				return value != it->end() && value->is_boolean() ? value->get<bool>() : fallback;
+			};
+			G::Vars.sequenceLog = readBool("SequenceLog", false);
+			G::Vars.animSequenceModify = readBool("AnimSequenceModify", false);
+			G::Vars.ignoreShotgunSequence = readBool("IgnoreShotgunSequence", false);
 		}
+		F::MenuMgr.LoadConfig(doc);
 	}
 	ELog("Step 6 done");
 
