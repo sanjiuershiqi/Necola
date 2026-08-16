@@ -9,6 +9,8 @@ an open-source ADS-only plugin for Left 4 Neko (L4N)
 
 本仓库已改造为 **L4N (Left 4 Neko) 附属插件**。只保留 ADS(开镜)功能,其它特性已全部移除。
 
+> **开发者文档**：接手本项目前请先阅读 [PROJECT_HANDBOOK.md](PROJECT_HANDBOOK.md)，然后按顺序查阅 [docs/L4N_PLUGIN_RESEARCH.md](docs/L4N_PLUGIN_RESEARCH.md)、[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+
 ### 工作原理
 
 - 不再使用自带 Detours 注入器(`left4dead2_necola.exe` 已删除)。
