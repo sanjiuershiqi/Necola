@@ -108,13 +108,13 @@ necola/
 ## 四、核心概念
 
 ### 4.1 L4N 插件机制
-L4N 是 L4D2 的修改平台（类似 CS 的 CS:GO 帝王）。它在游戏启动时扫描 `<left4dead2>/neko/plugins/*.dll`，对每个 DLL：
+L4N = **修改版 left4dead2.exe**（主平台）+ 引擎 shader 扩展 DLL + 工具链，非注入式框架。它在游戏启动时扫描 `<left4dead2>/neko/plugins/*.dll`，对每个 DLL：
 1. `LoadLibraryExA` 加载
 2. `GetProcAddress("GetL4NPluginInstance")` 获取工厂函数
 3. 调用获得 `IL4NPlugin*` 实例
 4. 在游戏生命周期中调用虚函数回调：`OnGameLaunch`、`OnModuleLoaded`、`OnD3D*`
 
-详见 [docs/L4N_PLUGIN_RESEARCH.md](docs/L4N_PLUGIN_RESEARCH.md)。
+详见 [docs/L4N_PLUGIN_RESEARCH.md](docs/L4N_PLUGIN_RESEARCH.md)（基于 v2.43.0 发行包逆向）。
 
 ### 4.2 模块就绪等待
 Source 引擎在启动时分阶段加载多个 DLL（client.dll、engine.dll、vgui2.dll 等）。Necola 需要等关键模块加载完成才能调用 `CreateInterface` 获取引擎接口。

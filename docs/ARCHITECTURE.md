@@ -8,7 +8,7 @@
 ┌─────────────────────────────────────────────────────┐
 │  left4dead2.exe (游戏进程)                          │
 │  ┌───────────────────────────────────────────────┐  │
-│  │ L4N 平台 DLL (注入)                           │  │
+│  │ L4N 平台 (修改版 left4dead2.exe,非注入)      │  │
 │  │  - 扫描 neko/plugins/*.dll                    │  │
 │  │  - 调用 GetL4NPluginInstance                  │  │
 │  │  - 回调 OnModuleLoaded / OnGameLaunch         │  │
