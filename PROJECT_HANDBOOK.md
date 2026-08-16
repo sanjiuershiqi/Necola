@@ -114,7 +114,7 @@ L4N = **修改版 left4dead2.exe**（主平台）+ 引擎 shader 扩展 DLL + �
 3. 调用获得 `IL4NPlugin*` 实例
 4. 在游戏生命周期中调用虚函数回调：`OnGameLaunch`、`OnModuleLoaded`、`OnD3D*`
 
-详见 [docs/L4N_PLUGIN_RESEARCH.md](docs/L4N_PLUGIN_RESEARCH.md)（基于 v2.43.0 发行包逆向）。
+详见 [docs/L4N_PLUGIN_RESEARCH.md](docs/L4N_PLUGIN_RESEARCH.md)（基于 v2.43.0 发行包逆向）。插件能力边界（API 面/进程能力/硬约束）见该文档第九章"L4N 插件能力极限分析"。
 
 ### 4.2 模块就绪等待
 Source 引擎在启动时分阶段加载多个 DLL（client.dll、engine.dll、vgui2.dll 等）。Necola 需要等关键模块加载完成才能调用 `CreateInterface` 获取引擎接口。
