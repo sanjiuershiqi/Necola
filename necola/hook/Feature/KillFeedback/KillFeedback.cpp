@@ -416,6 +416,11 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 	}
 	if (std::strcmp(name, "melee_kill") == 0) {
 		const int entityId = event->GetInt("entityid", 0);
+		if (IsLocalAttacker(event, "userid") && IsWitchEntity(entityId)) {
+			m_infectedDamage[entityId] = {KillMethod::Melee, SimulationTime()};
+			KFLog("tracked Witch melee_kill entity=%d", entityId);
+			return;
+		}
 		if (!G::Vars.killFeedbackCommon || !G::Vars.killFeedbackMelee ||
 			!IsLocalAttacker(event, "userid")) return;
 		const float now = SimulationTime();
@@ -445,11 +450,18 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 	}
 
 	SpecialVictim dedicatedVictim = SpecialVictim::Unknown;
-	if (std::strcmp(name, "boomer_exploded") == 0) dedicatedVictim = SpecialVictim::Boomer;
-	else if (std::strcmp(name, "charger_killed") == 0) dedicatedVictim = SpecialVictim::Charger;
-	else if (std::strcmp(name, "spitter_killed") == 0) dedicatedVictim = SpecialVictim::Spitter;
-	else if (std::strcmp(name, "jockey_killed") == 0) dedicatedVictim = SpecialVictim::Jockey;
-	else if (std::strcmp(name, "tank_killed") == 0) dedicatedVictim = SpecialVictim::Tank;
+	const char* dedicatedSource = nullptr;
+	if (std::strcmp(name, "boomer_exploded") == 0) {
+		dedicatedVictim = SpecialVictim::Boomer; dedicatedSource = "boomer_exploded";
+	} else if (std::strcmp(name, "charger_killed") == 0) {
+		dedicatedVictim = SpecialVictim::Charger; dedicatedSource = "charger_killed";
+	} else if (std::strcmp(name, "spitter_killed") == 0) {
+		dedicatedVictim = SpecialVictim::Spitter; dedicatedSource = "spitter_killed";
+	} else if (std::strcmp(name, "jockey_killed") == 0) {
+		dedicatedVictim = SpecialVictim::Jockey; dedicatedSource = "jockey_killed";
+	} else if (std::strcmp(name, "tank_killed") == 0) {
+		dedicatedVictim = SpecialVictim::Tank; dedicatedSource = "tank_killed";
+	}
 	if (dedicatedVictim != SpecialVictim::Unknown) {
 		if (!IsLocalAttacker(event, "attacker")) return;
 		const int victimUserId = event->GetInt("userid", 0);
@@ -463,7 +475,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		} else if (dedicatedVictim == SpecialVictim::Jockey && event->GetString("weapon", "")[0] != '\0') {
 			dedicatedMethod = ClassifySpecialKill(event);
 		}
-		QueueSpecialKill(dedicatedVictim, dedicatedMethod, victimUserId, name);
+		QueueSpecialKill(dedicatedVictim, dedicatedMethod, victimUserId, dedicatedSource);
 		m_playerDamage.erase(victimUserId);
 		return;
 	}
