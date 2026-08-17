@@ -12,10 +12,10 @@ constexpr int FRAME_COUNT = 85;
 constexpr float FRAME_INTERVAL = 1.0f / 30.0f;
 constexpr float MIN_STREAK_WINDOW = 0.5f;
 constexpr float MAX_STREAK_WINDOW = 10.0f;
-constexpr int DMG_BLAST = 1 << 6;
-constexpr int DMG_SLASH = 1 << 2;
-constexpr int DMG_CLUB = 1 << 7;
-constexpr int HITGROUP_HEAD = 1;
+constexpr int KF_DMG_BLAST = 1 << 6;
+constexpr int KF_DMG_SLASH = 1 << 2;
+constexpr int KF_DMG_CLUB = 1 << 7;
+constexpr int KF_HITGROUP_HEAD = 1;
 constexpr float DAMAGE_RECORD_LIFETIME = 30.0f;
 
 float SimulationTime() {
@@ -137,7 +137,7 @@ KillFeedback::KillMethod KillFeedback::ClassifyCommonKill(IGameEvent* event) con
 KillFeedback::KillMethod KillFeedback::ClassifySpecialKill(IGameEvent* event) const {
 	const char* weapon = event->GetString("weapon", "");
 	const int damageType = event->GetInt("type", 0);
-	if ((damageType & DMG_BLAST) != 0 || Contains(weapon, "pipe_bomb") ||
+	if ((damageType & KF_DMG_BLAST) != 0 || Contains(weapon, "pipe_bomb") ||
 		Contains(weapon, "grenade_launcher") || Contains(weapon, "propane") ||
 		Contains(weapon, "oxygen") || Contains(weapon, "firework")) {
 		return KillMethod::Explosion;
@@ -164,9 +164,9 @@ KillFeedback::KillMethod KillFeedback::ClassifyWitchKill(IGameEvent* event) cons
 
 KillFeedback::KillMethod KillFeedback::ClassifyTrackedDamage(IGameEvent* event) const {
 	const int damageType = event->GetInt("type", 0);
-	if ((damageType & DMG_BLAST) != 0) return KillMethod::Explosion;
-	if ((damageType & (DMG_SLASH | DMG_CLUB)) != 0) return KillMethod::Melee;
-	if (event->GetInt("hitgroup", 0) == HITGROUP_HEAD) return KillMethod::Headshot;
+	if ((damageType & KF_DMG_BLAST) != 0) return KillMethod::Explosion;
+	if ((damageType & (KF_DMG_SLASH | KF_DMG_CLUB)) != 0) return KillMethod::Melee;
+	if (event->GetInt("hitgroup", 0) == KF_HITGROUP_HEAD) return KillMethod::Headshot;
 	return KillMethod::Firearm;
 }
 
