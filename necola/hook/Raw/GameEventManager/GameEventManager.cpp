@@ -6,6 +6,23 @@
 
 using namespace Hooks;
 
+namespace {
+bool NeedsServerKillFeedbackEvent(const char* name) {
+	return name && (
+		strcmp(name, "player_hurt") == 0 ||
+		strcmp(name, "player_death") == 0 ||
+		strcmp(name, "boomer_exploded") == 0 ||
+		strcmp(name, "spitter_killed") == 0);
+}
+}
+
+bool __fastcall GameEventManager::FireEvent::Detour(void* ecx, void* edx, IGameEvent* event, bool bDontBroadcast) {
+	if (event && NeedsServerKillFeedbackEvent(event->GetName())) {
+		F::KillFeedbackMgr.OnGameEvent(event);
+	}
+	return Table.Original<FN>(Index)(ecx, edx, event, bDontBroadcast);
+}
+
 bool __fastcall GameEventManager::FireEventClient::Detour(void* ecx, void* edx,  IGameEvent *event) {
 	const char *name = event->GetName();
 	F::KillFeedbackMgr.OnGameEvent(event);
@@ -68,6 +85,8 @@ bool __fastcall GameEventManager::FireEventClient::Detour(void* ecx, void* edx, 
 
 bool GameEventManager::Init()
 {
-	return Table.Init(I::GameEventManager, FireEventClient::Index + 1)
-		&& Table.Hook(&FireEventClient::Detour, FireEventClient::Index);
+	if (!Table.Init(I::GameEventManager, FireEventClient::Index + 1)) return false;
+	bool ok = Table.Hook(&FireEvent::Detour, FireEvent::Index);
+	ok = Table.Hook(&FireEventClient::Detour, FireEventClient::Index) && ok;
+	return ok;
 }

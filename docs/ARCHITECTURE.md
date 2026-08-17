@@ -110,7 +110,7 @@ Pattern scan 用于定位非导出函数和全局指针。Pattern 失败表示�
 
 ## 四、Hook 拓扑
 
-`G::Hooks.Init()` 注册 5 个 Raw hook 组，实际包含 12 个 MinHook detour：
+`G::Hooks.Init()` 注册 5 个 Raw hook 组，实际包含 13 个 MinHook detour：
 
 | 组 | Hook 点 | 用途 |
 |---|---|---|
@@ -118,7 +118,7 @@ Pattern scan 用于定位非导出函数和全局指针。Pattern 失败表示�
 | EngineVGui | `Paint` | 战役计时材质、击杀反馈、准星控制和菜单绘制 |
 | BaseCombatWeapon | `SendWeaponAnim`、`SetIdealActivity` | 武器动画拦截 |
 | BaseAnimating | `RecvProxySequenceViewModel`、`SelectWeightedSequence`、`FireEvent` | viewmodel 序列与动画事件 |
-| GameEventManager | `FireEventClient` | ADS 清理、战役计时和击杀反馈事件分发 |
+| GameEventManager | `FireEvent`、`FireEventClient` | ADS 清理、战役计时和客户端/服务器击杀事件分发 |
 
 `SequenceModify::RecvPropDataHook()` 另外替换 3 个网络属性代理：
 
@@ -129,7 +129,7 @@ Pattern scan 用于定位非导出函数和全局指针。Pattern 失败表示�
 这些 proxy 不属于 MinHook。`m_dwRecvProxySequence` 虽然会被 pattern 定位，但当前没有安装为
 detour，文档和排障时不要把它列为已启用 Hook。
 
-当前 Hook 初始化检查 MinHook 初始化、12 个 Hook 创建及统一启用结果。`CTable` 使用调用方给出的
+当前 Hook 初始化检查 MinHook 初始化、13 个 Hook 创建及统一启用结果。`CTable` 使用调用方给出的
 最小表大小，不再扫描未知长度虚表；任一步失败都会禁用并反初始化 MinHook。
 
 ## 五、ADS 状态与数据流
