@@ -523,6 +523,14 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 }
 
 void KillFeedback::Trigger(KillMethod method) {
+	if (method == KillMethod::Melee || method == KillMethod::Explosion) {
+		const KillFeedbackEffect effect = method == KillMethod::Melee
+			? KillFeedbackEffect::Melee : KillFeedbackEffect::Explosion;
+		KFLog("trigger method-only effect=%s; streak unchanged=%d", EffectName(effect), m_streak);
+		StartEffect(effect, 1);
+		return;
+	}
+
 	const float now = SimulationTime();
 	if (now - m_lastKillTime <= G::Vars.killFeedbackWindow) {
 		m_streak = std::min(m_streak + 1, 10);

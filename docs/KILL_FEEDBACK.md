@@ -48,6 +48,7 @@ Necola 已替代该 SMX 的事件、连杀、逐帧动画和声音逻辑。素�
 - `player_death` 处理 Smoker、Boomer、Hunter、Spitter、Jockey、Charger 和 Tank。
 - `witch_killed` 处理 Witch；其击杀方式由最近一次本地 `infected_hurt` 记录判断。
 - 连杀窗口默认 3 秒，回合开始、任务失败和地图过渡时清空。
+- 只有普通枪械和爆头计入连杀；近战与爆炸始终显示各自图标，不增加也不重置现有连杀计数。
 - 动画共 85 帧，以 30 FPS 播放；新击杀会中断并替换当前动画。
 - 视觉由 VGUI 按素材原始 2:1 比例居中绘制，不占用全局 `r_screenoverlay`。
 - 当屏幕宽度超过 2048 时保持 2048×1024 原生绘制尺寸，避免将原素材放大到 4K 后变模糊。
