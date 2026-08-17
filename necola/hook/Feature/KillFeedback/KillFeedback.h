@@ -25,6 +25,7 @@ public:
 	void SaveConfig() const;
 
 	void OnGameEvent(IGameEvent* event);
+	void RefreshSpecialVictims();
 	void Draw();
 	void Stop();
 	void Reset();
@@ -106,6 +107,7 @@ private:
 	float m_lastSpecialKillTime = -1000.0f;
 	int m_lastCommonEntityId = 0;
 	float m_lastCommonKillTime = -1000.0f;
+	float m_lastVictimRefresh = -1000.0f;
 };
 
 namespace F { inline KillFeedback KillFeedbackMgr; }

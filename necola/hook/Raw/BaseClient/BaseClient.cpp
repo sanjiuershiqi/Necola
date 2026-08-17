@@ -42,6 +42,9 @@ void __fastcall BaseClient::FrameStageNotify::Detour(void* ecx, void* edx, Clien
 {
 	switch(curStage)
 	{
+		case FRAME_NET_UPDATE_END:
+			F::KillFeedbackMgr.RefreshSpecialVictims();
+			break;
 		case FRAME_RENDER_START:
 		{
 			if (G::Vars.enableAdsSupport) {

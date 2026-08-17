@@ -156,9 +156,11 @@ void KillFeedback::SaveConfig() const {
 
 bool KillFeedback::IsLocalAttacker(IGameEvent* event, const char* field) const {
 	if (!event || !I::EngineClient) return false;
-	const int attackerUserId = event->GetInt(field, 0);
-	return attackerUserId > 0 &&
-		I::EngineClient->GetPlayerForUserID(attackerUserId) == I::EngineClient->GetLocalPlayer();
+	const int attacker = event->GetInt(field, 0);
+	if (attacker <= 0) return false;
+	const int resolved = I::EngineClient->GetPlayerForUserID(attacker);
+	const int local = I::EngineClient->GetLocalPlayer();
+	return resolved > 0 ? resolved == local : attacker == local;
 }
 
 KillFeedback::SpecialVictim KillFeedback::GetSpecialVictim(IGameEvent* event) const {
@@ -329,6 +331,29 @@ void KillFeedback::FlushPendingSpecialKills() {
 		HandleSpecialKill(pending.victim, pending.method, victimUserId, pending.source);
 		m_playerDamage.erase(victimUserId);
 		m_specialVictims.erase(victimUserId);
+	}
+}
+
+void KillFeedback::RefreshSpecialVictims() {
+	if (!G::Vars.killFeedbackEnabled || !I::GlobalVars || !I::EngineClient || !I::ClientEntityList) return;
+	const float now = PresentationTime();
+	if (now - m_lastVictimRefresh < 1.0f) return;
+	m_lastVictimRefresh = now;
+
+	for (int index = 1; index <= I::EngineClient->GetMaxClients(); ++index) {
+		auto* entity = I::ClientEntityList->GetClientEntity(index);
+		auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
+		if (!player) continue;
+		const SpecialVictim victim = SpecialVictimFromZombieClass(player->m_zombieClass());
+		if (victim == SpecialVictim::Unknown) continue;
+		player_info_t info = {};
+		if (!I::EngineClient->GetPlayerInfo(index, &info) || info.userid <= 0) continue;
+		const auto previous = m_specialVictims.find(info.userid);
+		if (previous == m_specialVictims.end() || previous->second != victim) {
+			m_specialVictims[info.userid] = victim;
+			KFLog("cached network scan victim=%s userid=%d index=%d", SpecialVictimName(victim),
+				info.userid, index);
+		}
 	}
 }
 
@@ -712,6 +737,7 @@ void KillFeedback::Reset() {
 	m_lastSpecialKillTime = -1000.0f;
 	m_lastCommonEntityId = 0;
 	m_lastCommonKillTime = -1000.0f;
+	m_lastVictimRefresh = -1000.0f;
 }
 
 void KillFeedback::Shutdown() {
