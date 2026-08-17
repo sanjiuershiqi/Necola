@@ -72,6 +72,8 @@ private:
 	static int EffectStreak(KillFeedbackEffect effect);
 	static const char* MethodName(KillMethod method);
 	static const char* SpecialVictimName(SpecialVictim victim);
+	static SpecialVictim SpecialVictimFromZombieClass(int zombieClass);
+	static SpecialVictim SpecialVictimFromAbility(const char* ability);
 
 	KillFeedbackEffect m_effect = KillFeedbackEffect::Kill1;
 	float m_animationStart = 0.0f;
@@ -99,6 +101,7 @@ private:
 	std::unordered_map<int, DamageRecord> m_infectedDamage;
 	std::unordered_map<int, PlayerDamageRecord> m_playerDamage;
 	std::unordered_map<int, PendingSpecialKill> m_pendingSpecialKills;
+	std::unordered_map<int, SpecialVictim> m_specialVictims;
 	int m_lastSpecialVictimUserId = 0;
 	float m_lastSpecialKillTime = -1000.0f;
 	int m_lastCommonEntityId = 0;

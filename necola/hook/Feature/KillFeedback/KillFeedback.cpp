@@ -168,20 +168,17 @@ KillFeedback::SpecialVictim KillFeedback::GetSpecialVictim(IGameEvent* event) co
 		auto* entity = I::ClientEntityList->GetClientEntity(victim);
 		auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
 		if (player) {
-			switch (player->m_zombieClass()) {
-				case CLASS_SMOKER: return SpecialVictim::Smoker;
-				case CLASS_BOOMER: return SpecialVictim::Boomer;
-				case CLASS_HUNTER: return SpecialVictim::Hunter;
-				case CLASS_SPITTER: return SpecialVictim::Spitter;
-				case CLASS_JOCKEY: return SpecialVictim::Jockey;
-				case CLASS_CHARGER: return SpecialVictim::Charger;
-				case CLASS_TANK: return SpecialVictim::Tank;
-				default: break;
-			}
+			const SpecialVictim liveVictim = SpecialVictimFromZombieClass(player->m_zombieClass());
+			if (liveVictim != SpecialVictim::Unknown) return liveVictim;
 		}
 	}
-	const auto tracked = m_playerDamage.find(event->GetInt("userid", 0));
+	const int victimUserId = event->GetInt("userid", 0);
+	const auto cached = m_specialVictims.find(victimUserId);
+	if (cached != m_specialVictims.end()) return cached->second;
+	const auto tracked = m_playerDamage.find(victimUserId);
 	if (tracked != m_playerDamage.end()) return tracked->second.victim;
+	const auto pending = m_pendingSpecialKills.find(victimUserId);
+	if (pending != m_pendingSpecialKills.end()) return pending->second.victim;
 
 	const char* name = event->GetString("victimname", "");
 	if (_stricmp(name, "Smoker") == 0) return SpecialVictim::Smoker;
@@ -314,6 +311,7 @@ void KillFeedback::QueueSpecialKill(SpecialVictim victim, KillMethod method, int
 		return;
 	}
 	m_pendingSpecialKills[victimUserId] = {victim, method, PresentationTime(), source};
+	m_specialVictims[victimUserId] = victim;
 	KFLog("special queued source=%s victim=%s userid=%d method=%s", source,
 		SpecialVictimName(victim), victimUserId, MethodName(method));
 }
@@ -329,6 +327,8 @@ void KillFeedback::FlushPendingSpecialKills() {
 		const PendingSpecialKill pending = it->second;
 		it = m_pendingSpecialKills.erase(it);
 		HandleSpecialKill(pending.victim, pending.method, victimUserId, pending.source);
+		m_playerDamage.erase(victimUserId);
+		m_specialVictims.erase(victimUserId);
 	}
 }
 
@@ -349,6 +349,30 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		std::strcmp(name, "player_death") == 0 || std::strcmp(name, "witch_killed") == 0;
 	if (!G::Vars.killFeedbackEnabled) {
 		if (killEvent) KFLog("event=%s ignored: master switch disabled", name);
+		return;
+	}
+	if (std::strcmp(name, "player_spawn") == 0) {
+		const int userId = event->GetInt("userid", 0);
+		const SpecialVictim victim = GetSpecialVictim(event);
+		if (userId > 0 && victim != SpecialVictim::Unknown) {
+			m_specialVictims[userId] = victim;
+			KFLog("cached player_spawn victim=%s userid=%d", SpecialVictimName(victim), userId);
+		}
+		return;
+	}
+	if (std::strcmp(name, "ability_use") == 0) {
+		const int userId = event->GetInt("userid", 0);
+		const SpecialVictim victim = SpecialVictimFromAbility(event->GetString("ability", ""));
+		if (userId > 0 && victim != SpecialVictim::Unknown) {
+			m_specialVictims[userId] = victim;
+			KFLog("cached ability_use victim=%s userid=%d ability=%s", SpecialVictimName(victim),
+				userId, event->GetString("ability", ""));
+		}
+		return;
+	}
+	if (std::strcmp(name, "tank_spawn") == 0) {
+		const int userId = event->GetInt("userid", 0);
+		if (userId > 0) m_specialVictims[userId] = SpecialVictim::Tank;
 		return;
 	}
 	if (std::strcmp(name, "infected_hurt") == 0) {
@@ -384,6 +408,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		if (victim == SpecialVictim::Unknown) return;
 		const KillMethod hurtMethod = ClassifySpecialKill(event);
 		m_playerDamage[victimUserId] = {victim, hurtMethod, SimulationTime()};
+		m_specialVictims[victimUserId] = victim;
 		KFLog("tracked player_hurt victim=%s userid=%d health=%d method=%s weapon=%s type=%d hitgroup=%d",
 			SpecialVictimName(victim), victimUserId, event->GetInt("health", -1), MethodName(hurtMethod),
 			event->GetString("weapon", ""), event->GetInt("type", 0), event->GetInt("hitgroup", 0));
@@ -403,6 +428,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 	if (dedicatedVictim != SpecialVictim::Unknown) {
 		if (!IsLocalAttacker(event, "attacker")) return;
 		const int victimUserId = event->GetInt("userid", 0);
+		m_specialVictims[victimUserId] = dedicatedVictim;
 		KillMethod dedicatedMethod = KillMethod::Firearm;
 		const auto tracked = m_playerDamage.find(victimUserId);
 		if (tracked != m_playerDamage.end()) dedicatedMethod = tracked->second.method;
@@ -449,6 +475,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		method = tracked != m_playerDamage.end() ? tracked->second.method : ClassifySpecialKill(event);
 		HandleSpecialKill(victim, method, victimUserId, "player_death");
 		m_playerDamage.erase(victimUserId);
+		m_specialVictims.erase(victimUserId);
 		return;
 	} else if (std::strcmp(name, "witch_killed") == 0) {
 		const bool local = IsLocalAttacker(event, "userid");
@@ -549,6 +576,30 @@ const char* KillFeedback::SpecialVictimName(SpecialVictim victim) {
 		case SpecialVictim::Witch: return "witch";
 		default: return "unknown";
 	}
+}
+
+KillFeedback::SpecialVictim KillFeedback::SpecialVictimFromZombieClass(int zombieClass) {
+	switch (zombieClass) {
+		case CLASS_SMOKER: return SpecialVictim::Smoker;
+		case CLASS_BOOMER: return SpecialVictim::Boomer;
+		case CLASS_HUNTER: return SpecialVictim::Hunter;
+		case CLASS_SPITTER: return SpecialVictim::Spitter;
+		case CLASS_JOCKEY: return SpecialVictim::Jockey;
+		case CLASS_CHARGER: return SpecialVictim::Charger;
+		case CLASS_TANK: return SpecialVictim::Tank;
+		default: return SpecialVictim::Unknown;
+	}
+}
+
+KillFeedback::SpecialVictim KillFeedback::SpecialVictimFromAbility(const char* ability) {
+	if (!ability) return SpecialVictim::Unknown;
+	if (std::strcmp(ability, "ability_tongue") == 0) return SpecialVictim::Smoker;
+	if (std::strcmp(ability, "ability_vomit") == 0) return SpecialVictim::Boomer;
+	if (std::strcmp(ability, "ability_lunge") == 0) return SpecialVictim::Hunter;
+	if (std::strcmp(ability, "ability_spit") == 0) return SpecialVictim::Spitter;
+	if (std::strcmp(ability, "ability_charge") == 0) return SpecialVictim::Charger;
+	if (std::strcmp(ability, "ability_throw") == 0) return SpecialVictim::Tank;
+	return SpecialVictim::Unknown;
 }
 
 void KillFeedback::StartEffect(KillFeedbackEffect effect, int streakSound) {
@@ -656,6 +707,7 @@ void KillFeedback::Reset() {
 	m_infectedDamage.clear();
 	m_playerDamage.clear();
 	m_pendingSpecialKills.clear();
+	m_specialVictims.clear();
 	m_lastSpecialVictimUserId = 0;
 	m_lastSpecialKillTime = -1000.0f;
 	m_lastCommonEntityId = 0;
