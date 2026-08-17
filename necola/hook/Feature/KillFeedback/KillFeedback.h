@@ -55,6 +55,8 @@ private:
 	SpecialVictim GetSpecialVictim(IGameEvent* event) const;
 	bool IsSpecialVictimEnabled(SpecialVictim victim) const;
 	void HandleSpecialKill(SpecialVictim victim, KillMethod method, int victimUserId, const char* source);
+	void QueueSpecialKill(SpecialVictim victim, KillMethod method, int victimUserId, const char* source);
+	void FlushPendingSpecialKills();
 	KillMethod ClassifyCommonKill(IGameEvent* event) const;
 	KillMethod ClassifySpecialKill(IGameEvent* event) const;
 	KillMethod ClassifyWitchKill(IGameEvent* event) const;
@@ -88,10 +90,19 @@ private:
 		KillMethod method = KillMethod::Firearm;
 		float time = 0.0f;
 	};
+	struct PendingSpecialKill {
+		SpecialVictim victim = SpecialVictim::Unknown;
+		KillMethod method = KillMethod::Firearm;
+		float time = 0.0f;
+		const char* source = "unknown";
+	};
 	std::unordered_map<int, DamageRecord> m_infectedDamage;
 	std::unordered_map<int, PlayerDamageRecord> m_playerDamage;
+	std::unordered_map<int, PendingSpecialKill> m_pendingSpecialKills;
 	int m_lastSpecialVictimUserId = 0;
 	float m_lastSpecialKillTime = -1000.0f;
+	int m_lastCommonEntityId = 0;
+	float m_lastCommonKillTime = -1000.0f;
 };
 
 namespace F { inline KillFeedback KillFeedbackMgr; }
