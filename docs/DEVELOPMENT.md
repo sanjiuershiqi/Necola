@@ -163,8 +163,8 @@ Necola 不读取 `FeatureConfig.json` 中的 `KeyBinds` 数组，也不会自动
 
 ### 3.5 外部击杀反馈素材
 
-击杀反馈素材不进入 DLL，也不提交到仓库。开发环境中的原始和优化版素材目录均被 `.gitignore`
-忽略；运行时优先使用 `CF动态击杀反馈优化版` 的 `materials/overlays/cf_optimized/` 和 `sound/cf/`，不需要
+击杀反馈素材不进入 DLL，也不提交到仓库。开发环境中的 `CF动态击杀反馈/` 被 `.gitignore` 忽略；
+运行时只需要它的 `materials/overlays/cf/` 和 `sound/cf/`，不需要
 `addons/sourcemod/plugins/hitsound_v2.smx`。
 
 配置段为：

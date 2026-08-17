@@ -595,21 +595,14 @@ bool KillFeedback::BindFrameTexture(int frame) {
 	}
 	if (m_textureId < 0) m_textureId = I::MatSystemSurface->CreateNewTextureID();
 	if (m_textureId < 0) return false;
-	if (!m_textureBound || m_boundTextureEffect != m_effect) {
-		char materialName[128] = {};
-		_snprintf_s(materialName, sizeof(materialName), _TRUNCATE,
-			"overlays/cf_optimized/%s", EffectName(m_effect));
-		I::MatSystemSurface->DrawSetTextureFile(m_textureId, materialName, 1, false);
-		const bool valid = I::MatSystemSurface->IsTextureIDValid(m_textureId);
-		KFLog("texture bind effect=%s textureId=%d valid=%d path=%s",
-			EffectName(m_effect), m_textureId, valid, materialName);
-		if (!valid) return false;
-		m_boundTextureEffect = m_effect;
-		m_textureBound = true;
-		m_frameCache = 0;
-	}
-	I::MatSystemSurface->DrawSetTextureFrame(m_textureId, frame, &m_frameCache);
-	if (frame == 0) KFLog("frame select effect=%s frame=0 textureId=%d", EffectName(m_effect), m_textureId);
+	char materialName[128] = {};
+	_snprintf_s(materialName, sizeof(materialName), _TRUNCATE,
+		"overlays/cf/%s_%03d", EffectName(m_effect), frame);
+	I::MatSystemSurface->DrawSetTextureFile(m_textureId, materialName, 1, false);
+	const bool valid = I::MatSystemSurface->IsTextureIDValid(m_textureId);
+	if (frame == 0 || !valid) KFLog("frame bind effect=%s frame=%d textureId=%d valid=%d path=%s",
+		EffectName(m_effect), frame, m_textureId, valid, materialName);
+	if (!valid) return false;
 	m_boundFrame = frame;
 	return true;
 }

@@ -79,9 +79,6 @@ private:
 	int m_streak = 0;
 	int m_boundFrame = -1;
 	int m_textureId = -1;
-	unsigned int m_frameCache = 0;
-	KillFeedbackEffect m_boundTextureEffect = KillFeedbackEffect::Kill1;
-	bool m_textureBound = false;
 	bool m_animating = false;
 	bool m_drawLogged = false;
 	struct DamageRecord {
