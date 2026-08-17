@@ -136,6 +136,7 @@ void InGameMenu::InitConfigSwitches() {
 
 	auto toolsMenu = FindMenuById("tools");
 	if (toolsMenu) {
+		toolsMenu->setSwitchStateByName("击杀反馈日志", G::Vars.killFeedbackLog);
 		toolsMenu->setSwitchStateByName("ADS详细日志", G::Vars.adsLog);
 		toolsMenu->setSwitchStateByName("序列详细日志", G::Vars.sequenceLog);
 	}

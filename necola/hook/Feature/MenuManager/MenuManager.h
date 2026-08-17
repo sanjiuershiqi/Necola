@@ -679,6 +679,10 @@ public:
 		auto toolsMenu = rootMenu->addSubMenu("诊断与工具", "tools", "诊断与工具");
 		registerMenu(toolsMenu);
 		if (toolsMenu) {
+			toolsMenu->addSwitch("击杀反馈日志", G::Vars.killFeedbackLog, [](bool state) {
+				G::Vars.killFeedbackLog = state;
+				F::KillFeedbackMgr.SaveConfig();
+			});
 			toolsMenu->addSwitch("ADS详细日志", G::Vars.adsLog, [](bool state) {
 				G::Vars.adsLog = state;
 				nlohmann::json doc = NecolaConfig::LoadConfig();

@@ -30,6 +30,7 @@ public:
 	void Reset();
 	void Shutdown();
 	void Preview(KillFeedbackEffect effect);
+	void PrintStatus() const;
 
 private:
 	enum class KillMethod {
@@ -56,6 +57,7 @@ private:
 
 	static const char* EffectName(KillFeedbackEffect effect);
 	static int EffectStreak(KillFeedbackEffect effect);
+	static const char* MethodName(KillMethod method);
 
 	KillFeedbackEffect m_effect = KillFeedbackEffect::Kill1;
 	float m_animationStart = 0.0f;
@@ -64,6 +66,7 @@ private:
 	int m_boundFrame = -1;
 	int m_textureId = -1;
 	bool m_animating = false;
+	bool m_drawLogged = false;
 	struct DamageRecord {
 		KillMethod method = KillMethod::Firearm;
 		float time = 0.0f;

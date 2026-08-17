@@ -303,6 +303,12 @@ static bool RunLoadBody()
 					F::CampaignTimerMgr.GetChapterSeconds(), F::CampaignTimerMgr.GetCurrentMap().c_str());
 			}
 		}, "print the Necola campaign timer status");
+		F::CmdMgr.RegistCommand("necola_killfeedback_status", [](int*) {
+			F::KillFeedbackMgr.PrintStatus();
+		}, "print Necola kill feedback status");
+		F::CmdMgr.RegistCommand("necola_killfeedback_test", [](int*) {
+			F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill1);
+		}, "test Necola kill feedback assets");
 	}
 	ELog("Step 10 done");
 	return true;

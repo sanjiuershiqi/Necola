@@ -52,6 +52,7 @@ public:
 
     // External CF-style kill feedback.
     bool killFeedbackEnabled = false;
+    bool killFeedbackLog = true;
     bool killFeedbackCommon = true;
     bool killFeedbackSpecial = true;
     bool killFeedbackVisual = true;

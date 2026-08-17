@@ -1,9 +1,11 @@
 #include "KillFeedback.h"
 
 #include "../../../sdk/utils/FeatureConfigManager.h"
+#include "../../../sdk/l4d2/interfaces/IConVar.h"
 #include "../../Vars.h"
 
 #include <algorithm>
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 
@@ -36,6 +38,41 @@ bool IsExplosionWeaponId(int weaponId) {
 		weaponId == WEAPON_FIREWORK;
 }
 
+std::string KillFeedbackLogPath() {
+	char exePath[MAX_PATH] = {};
+	GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+	std::string path(exePath);
+	const std::size_t slash = path.find_last_of("\\/");
+	return (slash == std::string::npos ? std::string(".") : path.substr(0, slash)) +
+		"\\L4N-Necola-ADS-diag.log";
+}
+
+void KFLog(const char* format, ...) {
+	if (!G::Vars.killFeedbackLog || !format) return;
+	char message[1024] = {};
+	va_list args;
+	va_start(args, format);
+	_vsnprintf_s(message, sizeof(message), _TRUNCATE, format, args);
+	va_end(args);
+
+	static const std::string path = KillFeedbackLogPath();
+	HANDLE file = CreateFileA(path.c_str(), FILE_APPEND_DATA,
+		FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file == INVALID_HANDLE_VALUE) return;
+	SYSTEMTIME time = {};
+	GetLocalTime(&time);
+	char line[1280] = {};
+	const int length = _snprintf_s(line, sizeof(line), _TRUNCATE,
+		"[%04u-%02u-%02u %02u:%02u:%02u.%03u] KillFeedback: %s\r\n",
+		time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond,
+		time.wMilliseconds, message);
+	if (length > 0) {
+		DWORD written = 0;
+		WriteFile(file, line, static_cast<DWORD>(length), &written, nullptr);
+	}
+	CloseHandle(file);
+}
+
 }
 
 void KillFeedback::LoadConfig(const nlohmann::json& doc) {
@@ -47,6 +84,7 @@ void KillFeedback::LoadConfig(const nlohmann::json& doc) {
 		return value != section->end() && value->is_boolean() ? value->get<bool>() : fallback;
 	};
 	G::Vars.killFeedbackEnabled = readBool("Enabled", false);
+	G::Vars.killFeedbackLog = readBool("LogEnabled", true);
 	G::Vars.killFeedbackCommon = readBool("CommonEnabled", true);
 	G::Vars.killFeedbackSpecial = readBool("SpecialEnabled", true);
 	G::Vars.killFeedbackVisual = readBool("VisualEnabled", true);
@@ -64,11 +102,17 @@ void KillFeedback::LoadConfig(const nlohmann::json& doc) {
 				window->get<float>(), MIN_STREAK_WINDOW, MAX_STREAK_WINDOW);
 		} catch (...) {}
 	}
+	KFLog("config loaded enabled=%d common=%d special=%d visual=%d sound=%d firearm=%d headshot=%d melee=%d explosion=%d multi=%d window=%.2f",
+		G::Vars.killFeedbackEnabled, G::Vars.killFeedbackCommon, G::Vars.killFeedbackSpecial,
+		G::Vars.killFeedbackVisual, G::Vars.killFeedbackSound, G::Vars.killFeedbackFirearm,
+		G::Vars.killFeedbackHeadshot, G::Vars.killFeedbackMelee, G::Vars.killFeedbackExplosion,
+		G::Vars.killFeedbackMultiKill, G::Vars.killFeedbackWindow);
 }
 
 void KillFeedback::SaveConfig(nlohmann::json& doc) const {
 	auto& section = NecolaConfig::EnsureSectionObject(doc, "KillFeedback");
 	section["Enabled"] = G::Vars.killFeedbackEnabled;
+	section["LogEnabled"] = G::Vars.killFeedbackLog;
 	section["CommonEnabled"] = G::Vars.killFeedbackCommon;
 	section["SpecialEnabled"] = G::Vars.killFeedbackSpecial;
 	section["VisualEnabled"] = G::Vars.killFeedbackVisual;
@@ -85,6 +129,7 @@ void KillFeedback::SaveConfig() const {
 	nlohmann::json doc = NecolaConfig::LoadConfig();
 	SaveConfig(doc);
 	NecolaConfig::SaveConfig(doc);
+	KFLog("config saved enabled=%d log=%d", G::Vars.killFeedbackEnabled, G::Vars.killFeedbackLog);
 }
 
 bool KillFeedback::IsLocalAttacker(IGameEvent* event, const char* field) const {
@@ -194,16 +239,25 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 
 	if (std::strcmp(name, "round_start") == 0 || std::strcmp(name, "mission_lost") == 0 ||
 		std::strcmp(name, "map_transition") == 0) {
+		KFLog("state reset by event=%s", name);
 		Reset();
 		return;
 	}
 
-	if (!G::Vars.killFeedbackEnabled) return;
+	const bool killEvent = std::strcmp(name, "infected_death") == 0 ||
+		std::strcmp(name, "player_death") == 0 || std::strcmp(name, "witch_killed") == 0;
+	if (!G::Vars.killFeedbackEnabled) {
+		if (killEvent) KFLog("event=%s ignored: master switch disabled", name);
+		return;
+	}
 	if (std::strcmp(name, "infected_hurt") == 0) {
 		if (G::Vars.killFeedbackSpecial && IsLocalAttacker(event, "attacker")) {
 			const int entityId = event->GetInt("entityid", 0);
 			if (IsWitchEntity(entityId)) {
 				m_infectedDamage[entityId] = {ClassifyTrackedDamage(event), SimulationTime()};
+				KFLog("tracked Witch damage entity=%d method=%s type=%d hitgroup=%d", entityId,
+					MethodName(m_infectedDamage[entityId].method), event->GetInt("type", 0),
+					event->GetInt("hitgroup", 0));
 			}
 		}
 		return;
@@ -211,20 +265,38 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 	KillMethod method = KillMethod::Firearm;
 	if (std::strcmp(name, "infected_death") == 0) {
 		m_infectedDamage.erase(event->GetInt("infected_id", 0));
-		if (!G::Vars.killFeedbackCommon || !IsLocalAttacker(event, "attacker")) return;
+		const bool local = IsLocalAttacker(event, "attacker");
+		KFLog("event=infected_death attacker=%d local=%d commonEnabled=%d weaponId=%d headshot=%d blast=%d",
+			event->GetInt("attacker", 0), local, G::Vars.killFeedbackCommon,
+			event->GetInt("weapon_id", 0), event->GetBool("headshot", false), event->GetBool("blast", false));
+		if (!G::Vars.killFeedbackCommon || !local) return;
 		method = ClassifyCommonKill(event);
 	} else if (std::strcmp(name, "player_death") == 0) {
-		if (!G::Vars.killFeedbackSpecial || !IsLocalAttacker(event, "attacker") || !IsSpecialVictim(event)) return;
+		const bool local = IsLocalAttacker(event, "attacker");
+		const bool special = IsSpecialVictim(event);
+		KFLog("event=player_death attacker=%d local=%d specialEnabled=%d specialVictim=%d weapon=%s headshot=%d type=%d",
+			event->GetInt("attacker", 0), local, G::Vars.killFeedbackSpecial, special,
+			event->GetString("weapon", ""), event->GetBool("headshot", false), event->GetInt("type", 0));
+		if (!G::Vars.killFeedbackSpecial || !local || !special) return;
 		method = ClassifySpecialKill(event);
 	} else if (std::strcmp(name, "witch_killed") == 0) {
-		if (!G::Vars.killFeedbackSpecial || !IsLocalAttacker(event, "userid")) return;
+		const bool local = IsLocalAttacker(event, "userid");
+		KFLog("event=witch_killed userid=%d local=%d specialEnabled=%d witchid=%d meleeOnly=%d",
+			event->GetInt("userid", 0), local, G::Vars.killFeedbackSpecial,
+			event->GetInt("witchid", 0), event->GetBool("melee_only", false));
+		if (!G::Vars.killFeedbackSpecial || !local) return;
 		method = ClassifyWitchKill(event);
 		m_infectedDamage.erase(event->GetInt("witchid", 0));
 	} else {
 		return;
 	}
 
-	if (IsMethodEnabled(method)) Trigger(method);
+	if (!IsMethodEnabled(method)) {
+		KFLog("kill ignored: method=%s disabled", MethodName(method));
+		return;
+	}
+	KFLog("kill accepted: method=%s", MethodName(method));
+	Trigger(method);
 }
 
 void KillFeedback::Trigger(KillMethod method) {
@@ -254,6 +326,7 @@ void KillFeedback::Trigger(KillMethod method) {
 			default: effect = KillFeedbackEffect::Kill1; break;
 		}
 	}
+	KFLog("trigger streak=%d effect=%s multi=%d", m_streak, EffectName(effect), useMultiKill);
 	StartEffect(effect, useMultiKill ? m_streak : 1);
 }
 
@@ -283,16 +356,30 @@ int KillFeedback::EffectStreak(KillFeedbackEffect effect) {
 	}
 }
 
+const char* KillFeedback::MethodName(KillMethod method) {
+	switch (method) {
+		case KillMethod::Firearm: return "firearm";
+		case KillMethod::Headshot: return "headshot";
+		case KillMethod::Melee: return "melee";
+		case KillMethod::Explosion: return "explosion";
+	}
+	return "unknown";
+}
+
 void KillFeedback::StartEffect(KillFeedbackEffect effect, int streakSound) {
 	Stop();
 	m_effect = effect;
 	m_animationStart = PresentationTime();
 	m_boundFrame = -1;
 	m_animating = G::Vars.killFeedbackVisual;
+	m_drawLogged = false;
+	KFLog("effect start name=%s visual=%d sound=%d streakSound=%d", EffectName(effect),
+		G::Vars.killFeedbackVisual, G::Vars.killFeedbackSound, streakSound);
 	if (G::Vars.killFeedbackSound) PlayEffectSound(effect, streakSound);
 }
 
 void KillFeedback::Preview(KillFeedbackEffect effect) {
+	KFLog("preview requested effect=%s", EffectName(effect));
 	StartEffect(effect, EffectStreak(effect));
 }
 
@@ -307,26 +394,43 @@ void KillFeedback::PlayEffectSound(KillFeedbackEffect effect, int streakSound) c
 	} else {
 		strcpy_s(sample, "cf/kill.mp3");
 	}
-	if (I::MatSystemSurface) I::MatSystemSurface->PlaySound(sample);
+	if (!I::MatSystemSurface) {
+		KFLog("sound skipped sample=%s: MatSystemSurface unavailable", sample);
+		return;
+	}
+	KFLog("sound play begin sample=%s", sample);
+	I::MatSystemSurface->PlaySound(sample);
+	KFLog("sound play returned sample=%s", sample);
 }
 
 bool KillFeedback::BindFrameTexture(int frame) {
-	if (!I::MatSystemSurface) return false;
+	if (!I::MatSystemSurface) {
+		KFLog("frame bind failed effect=%s frame=%d: MatSystemSurface unavailable", EffectName(m_effect), frame);
+		return false;
+	}
 	if (m_textureId < 0) m_textureId = I::MatSystemSurface->CreateNewTextureID();
 	if (m_textureId < 0) return false;
 	char materialName[128] = {};
 	_snprintf_s(materialName, sizeof(materialName), _TRUNCATE,
 		"overlays/cf/%s_%03d", EffectName(m_effect), frame);
 	I::MatSystemSurface->DrawSetTextureFile(m_textureId, materialName, 1, false);
-	if (!I::MatSystemSurface->IsTextureIDValid(m_textureId)) return false;
+	const bool valid = I::MatSystemSurface->IsTextureIDValid(m_textureId);
+	if (frame == 0 || !valid) KFLog("frame bind effect=%s frame=%d textureId=%d valid=%d path=%s",
+		EffectName(m_effect), frame, m_textureId, valid, materialName);
+	if (!valid) return false;
 	m_boundFrame = frame;
 	return true;
 }
 
 void KillFeedback::Draw() {
 	if (!m_animating || !G::Vars.killFeedbackVisual || !I::GlobalVars || !I::MatSystemSurface) return;
+	if (!m_drawLogged) {
+		KFLog("Draw entered effect=%s textureId=%d", EffectName(m_effect), m_textureId);
+		m_drawLogged = true;
+	}
 	const int frame = static_cast<int>((PresentationTime() - m_animationStart) / FRAME_INTERVAL);
 	if (frame < 0 || frame >= FRAME_COUNT) {
+		KFLog("animation complete effect=%s frame=%d", EffectName(m_effect), frame);
 		Stop();
 		return;
 	}
@@ -353,8 +457,10 @@ void KillFeedback::Draw() {
 }
 
 void KillFeedback::Stop() {
+	if (m_animating || m_boundFrame >= 0) KFLog("effect stop name=%s frame=%d", EffectName(m_effect), m_boundFrame);
 	m_animating = false;
 	m_boundFrame = -1;
+	m_drawLogged = false;
 }
 
 void KillFeedback::Reset() {
@@ -365,5 +471,18 @@ void KillFeedback::Reset() {
 }
 
 void KillFeedback::Shutdown() {
+	KFLog("shutdown");
 	Reset();
+}
+
+void KillFeedback::PrintStatus() const {
+	char message[512] = {};
+	_snprintf_s(message, sizeof(message), _TRUNCATE,
+		"enabled=%d log=%d common=%d special=%d visual=%d sound=%d animating=%d effect=%s frame=%d streak=%d textureId=%d window=%.2f",
+		G::Vars.killFeedbackEnabled, G::Vars.killFeedbackLog, G::Vars.killFeedbackCommon,
+		G::Vars.killFeedbackSpecial, G::Vars.killFeedbackVisual, G::Vars.killFeedbackSound,
+		m_animating, EffectName(m_effect), m_boundFrame, m_streak, m_textureId,
+		G::Vars.killFeedbackWindow);
+	KFLog("status %s", message);
+	if (I::Cvars) I::Cvars->ConsolePrintf("[Necola] KillFeedback %s\n", message);
 }
