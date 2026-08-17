@@ -10,6 +10,7 @@
 #include "./Feature/CommandManager/CommandManager.h"
 #include "./Feature/MenuManager/MenuManager.h"
 #include "./Feature/AdsSupport/AdsSupport.h"
+#include "./Feature/CampaignTimer/CampaignTimer.h"
 #include "../sdk/L4NEnv.h"
 #include "../sdk/l4d2/interfaces/IConVar.h"
 #include "../sdk/utils/FeatureConfigManager.h"
@@ -138,6 +139,7 @@ static bool RunLoadBody()
 		I::VGuiSurface      = U::Interface.Get<IVGuiSurface*>("vgui2.dll", "VGUI_Surface031");
 		I::MatSystemSurface = U::Interface.Get<IMatSystemSurface*>("vguimatsurface.dll", "VGUI_Surface031");
 		I::InputSystem		= U::Interface.Get<IInputSystem*>("inputsystem.dll", "InputSystemVersion001");
+		I::MaterialSystem	= U::Interface.Get<IMaterialSystem*>("materialsystem.dll", "VMaterialSystem080");
 
 		// ICvar — required for L4N coordination (l4n_* cvars) and for the
 		// direct-ConVar crosshair control in EngineVGui::Paint.
@@ -149,14 +151,14 @@ static bool RunLoadBody()
 			"  Interface check: BaseClient=%p ClientEntityList=%p EngineClient=%p "
 			"EngineVGui=%p VGuiPanel=%p VGuiSurface=%p MatSysSurface=%p InputSystem=%p "
 			"MDLCache=%p FileSystem=%p ModelInfo=%p GameEventMgr=%p Prediction=%p "
-			"EngineSound=%p NetStrTable=%p EngineTrace=%p Cvars=%p",
+			"EngineSound=%p NetStrTable=%p EngineTrace=%p Cvars=%p MaterialSystem=%p",
 			(void*)I::BaseClient, (void*)I::ClientEntityList, (void*)I::EngineClient,
 			(void*)I::EngineVGui, (void*)I::VGuiPanel, (void*)I::VGuiSurface,
 			(void*)I::MatSystemSurface, (void*)I::InputSystem,
 			(void*)I::MDLCache, (void*)I::FileSystem, (void*)I::ModelInfo,
 			(void*)I::GameEventManager, (void*)I::Prediction,
 			(void*)I::EngineSound, (void*)I::NetworkStringTable, (void*)I::EngineTrace,
-			(void*)I::Cvars);
+			(void*)I::Cvars, (void*)I::MaterialSystem);
 		ELog(buf);
 	}
 	const NamedRequirement requiredInterfaces[] = {
@@ -170,6 +172,7 @@ static bool RunLoadBody()
 	};
 	if (!ValidateRequirements("interface", requiredInterfaces)) return false;
 	if (!I::Cvars) ELog("WARN: ICvar unavailable; L4N coordination and direct crosshair control disabled");
+	if (!I::MaterialSystem) ELog("WARN: IMaterialSystem unavailable; campaign timer HUD integration disabled");
 
 	const NamedRequirement requiredOffsets[] = {
 		{"m_dwGlobalVars", reinterpret_cast<void*>(U::Offsets.m_dwGlobalVars)},
@@ -286,6 +289,18 @@ static bool RunLoadBody()
 				F::AdsMgr.OnAdsBackPressed();
 			}
 		}, "go back to previous ADS state");
+		F::CmdMgr.RegistCommand("necola_timer_reset", [](int*) {
+			F::CampaignTimerMgr.Reset();
+			if (I::Cvars) I::Cvars->ConsolePrintf("[Necola] campaign timer reset\n");
+		}, "reset the Necola campaign timer");
+		F::CmdMgr.RegistCommand("necola_timer_status", [](int*) {
+			const std::uint64_t total = F::CampaignTimerMgr.GetCampaignSeconds();
+			if (I::Cvars) {
+				I::Cvars->ConsolePrintf("[Necola] campaign timer %02llu:%02llu:%02llu, chapter %llu seconds, map %s\n",
+					total / 3600, (total / 60) % 60, total % 60,
+					F::CampaignTimerMgr.GetChapterSeconds(), F::CampaignTimerMgr.GetCurrentMap().c_str());
+			}
+		}, "print the Necola campaign timer status");
 	}
 	ELog("Step 10 done");
 	return true;
@@ -295,6 +310,8 @@ void CGlobal_ModuleEntry::undo()
 {
 	ELog("undo: restore crosshair if forced off");
 	Hooks::EngineVGui::RestoreCrosshairForUnload();
+	ELog("undo: release campaign timer materials");
+	F::CampaignTimerMgr.Shutdown();
 	ELog("undo: restore RecvProp proxies");
 	F::SModify.RecvPropDataUnhook();
 	ELog("undo: G::Hooks.undo()");

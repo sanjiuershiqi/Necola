@@ -2,6 +2,7 @@
 #include "../../Feature/MenuManager/MenuManager.h"
 #include "../../Feature/AdsSupport/AdsSupport.h"
 #include "../../Feature/BodygroupFix/BodygroupFix.h"
+#include "../../Feature/CampaignTimer/CampaignTimer.h"
 
 #include <spdlog/spdlog.h>
 
@@ -18,16 +19,19 @@ int MenuDigitFromButton(int keynum) {
 
 void __fastcall BaseClient::LevelInitPreEntity::Detour(void* ecx, void* edx, char const* pMapName)
 {
+	F::CampaignTimerMgr.OnLevelInitPreEntity(pMapName);
 	Table.Original<FN>(Index)(ecx, edx, pMapName);
 }
 
 void __fastcall BaseClient::LevelInitPostEntity::Detour(void* ecx, void* edx)
 {
 	Table.Original<FN>(Index)(ecx, edx);
+	F::CampaignTimerMgr.OnLevelInitPostEntity();
 }
 
 void __fastcall BaseClient::LevelShutdown::Detour(void* ecx, void* edx)
 {
+	F::CampaignTimerMgr.OnLevelShutdown();
 	Table.Original<FN>(Index)(ecx, edx);
 }
 
@@ -94,6 +98,7 @@ bool BaseClient::Init()
 
 	bool ok = Table.Hook(&LevelInitPreEntity::Detour, LevelInitPreEntity::Index);
 	ok = Table.Hook(&LevelInitPostEntity::Detour, LevelInitPostEntity::Index) && ok;
+	ok = Table.Hook(&LevelShutdown::Detour, LevelShutdown::Index) && ok;
 	ok = Table.Hook(&FrameStageNotify::Detour, FrameStageNotify::Index) && ok;
 	ok = Table.Hook(&IN_KeyEvent::Detour, IN_KeyEvent::Index) && ok;
 	return ok;

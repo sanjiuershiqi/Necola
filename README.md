@@ -98,6 +98,7 @@ just install   # 先修改 justfile 的硬编码 TARGET;当前默认值不是官
    - 菜单使用数字键 `1`-`7` 选择、`8`/`9` 翻页、`0`/Enter/Esc 返回；数字小键盘同样可用。
    - "诊断与工具" 可切换 ADS/序列日志或立即退出 ADS 状态；"菜单外观" 可保存左/中/右位置和背景透明度。
    - 绑定按键到 `necola_ads` / `necola_ads_mixed` / `necola_ads_foreceback` / `necola_ads_back` 控制开镜状态。
+   - 配套修改版 `cs2hud444` 可显示跨小关累计的战役时间，安装方式见 [战役计时器说明](docs/CAMPAIGN_TIMER.md)。
 
 ### ADS 控制台命令
 
@@ -108,6 +109,8 @@ just install   # 先修改 justfile 的硬编码 TARGET;当前默认值不是官
 | `necola_ads_mixed` | 切换 MIXED 开镜状态 |
 | `necola_ads_foreceback` | 强制回到普通状态 |
 | `necola_ads_back` | 回到上一个 ADS 状态 |
+| `necola_timer_status` | 在游戏控制台输出战役和当前小关时间 |
+| `necola_timer_reset` | 手动清零并重新开始战役计时 |
 
 ### 卸载
 

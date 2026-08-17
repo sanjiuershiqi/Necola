@@ -21,7 +21,7 @@ necola/dllmain.cpp
        |
        +-> sdk/: Source 接口、pattern、netvar
        +-> hook/Raw/: 原始 Hook 点
-       +-> hook/Feature/: ADS、序列、菜单、输入、bodygroup、命令
+       +-> hook/Feature/: ADS、战役计时、序列、菜单、输入、bodygroup、命令
 ```
 
 L4N 提供加载入口和生命周期回调。Necola 的主要运行逻辑自行使用 Source `CreateInterface`、
@@ -56,6 +56,7 @@ vguimatsurface.dll
 inputsystem.dll
 filesystem_stdio.dll
 vstdlib.dll
+materialsystem.dll
 ```
 
 当前实现没有条件变量或回调唤醒。等待超时会记录错误并终止线程，不会进入 `Hook_necola()`。
@@ -69,7 +70,7 @@ vstdlib.dll
 
 1. `U::Offsets.Init()` 扫描硬编码字节 pattern。
 2. `G::Vars.Load()` 从相对路径 `kpatch.ini` 读取 `[AdsSupport] enableAdsSupport`。
-3. 通过 `CreateInterface` 获取 17 个接口。
+3. 通过 `CreateInterface` 获取 18 个接口。
 4. 集中验证当前功能必需的接口和 pattern；缺失时终止。
 5. `L4N::Env.Init()` 探测并缓存相关 `l4n_*` cvar。
 6. 只解引用当前运行路径必需的 GlobalVars 指针，并验证结果。
@@ -78,7 +79,7 @@ vstdlib.dll
 9. 从 `necola\FeatureConfig.json` 读取 ADS、序列和菜单外观配置。
 10. 找齐并替换 3 个 `CBaseViewModel` RecvProp proxy。
 11. 按配置初始化 ADS，初始化菜单字体和菜单开关。
-12. 注册 5 个 `necola_*` 控制台命令。
+12. 注册 7 个 `necola_*` 控制台命令。
 
 不存在 `FeatureConfig.json/KeyBinds` 自动读取或自动 `bind`。
 
@@ -87,7 +88,7 @@ vstdlib.dll
 
 ## 三、Source 接口
 
-当前获取 17 个接口：
+当前获取 18 个接口：
 
 | 模块 | 接口 |
 |---|---|
@@ -99,21 +100,22 @@ vstdlib.dll
 | `vguimatsurface.dll` | `IMatSystemSurface` |
 | `inputsystem.dll` | `IInputSystem` |
 | `vstdlib.dll` | `ICvar` |
+| `materialsystem.dll` | `IMaterialSystem` |
 
 接口名称和版本均为硬编码。当前代码会在 Hook 安装前验证 ADS、菜单和活动 Hook 路径必需的接口；
-其余已获取但当前未使用的接口不会阻止启动，`ICvar` 缺失会降级 L4N 协调与直接准星控制。
+`ICvar` 缺失会降级 L4N 协调与直接准星控制，`IMaterialSystem` 缺失只会停用战役计时 HUD 接管。
 
 Pattern scan 用于定位非导出函数和全局指针。Pattern 失败表示当前二进制与签名不匹配，原因可能
 是游戏、L4N 或其他二进制版本变化，不能仅凭失败确定是哪一方修改了 DLL。
 
 ## 四、Hook 拓扑
 
-`G::Hooks.Init()` 注册 5 个 Raw hook 组，实际包含 11 个 MinHook detour：
+`G::Hooks.Init()` 注册 5 个 Raw hook 组，实际包含 12 个 MinHook detour：
 
 | 组 | Hook 点 | 用途 |
 |---|---|---|
-| BaseClient | `LevelInitPreEntity`、`LevelInitPostEntity`、`FrameStageNotify`、`IN_KeyEvent` | 帧更新、菜单按键、ADS 输入 |
-| EngineVGui | `Paint` | 准星控制和菜单绘制 |
+| BaseClient | `LevelInitPreEntity`、`LevelInitPostEntity`、`LevelShutdown`、`FrameStageNotify`、`IN_KeyEvent` | 关卡计时生命周期、帧更新、菜单按键、ADS 输入 |
+| EngineVGui | `Paint` | 战役计时材质、准星控制和菜单绘制 |
 | BaseCombatWeapon | `SendWeaponAnim`、`SetIdealActivity` | 武器动画拦截 |
 | BaseAnimating | `RecvProxySequenceViewModel`、`SelectWeightedSequence`、`FireEvent` | viewmodel 序列与动画事件 |
 | GameEventManager | `FireEventClient` | 死亡、地图等状态清理 |
@@ -127,7 +129,7 @@ Pattern scan 用于定位非导出函数和全局指针。Pattern 失败表示�
 这些 proxy 不属于 MinHook。`m_dwRecvProxySequence` 虽然会被 pattern 定位，但当前没有安装为
 detour，文档和排障时不要把它列为已启用 Hook。
 
-当前 Hook 初始化检查 MinHook 初始化、11 个 Hook 创建及统一启用结果。`CTable` 使用调用方给出的
+当前 Hook 初始化检查 MinHook 初始化、12 个 Hook 创建及统一启用结果。`CTable` 使用调用方给出的
 最小表大小，不再扫描未知长度虚表；任一步失败都会禁用并反初始化 MinHook。
 
 ## 五、ADS 状态与数据流
@@ -158,9 +160,21 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 代码中的 GPU fence、ray tracing、deferred pass 等注释不对应真实 GPU 资源或 D3D 调用。实际
 行为是 Source viewmodel 动画、序列字段和 bodygroup 操作。
 
-## 六、菜单、准星和 L4N 协调
+## 六、战役计时器
 
-`EngineVGui::Paint` 先调用原函数，然后在 `PAINT_INGAMEPANELS`：
+`CampaignTimer` 使用 `I::GlobalVars->curtime` 计算当前小关时间，因此地图加载期间不会推进。已完成小关
+在 `map_transition` 时提交到战役累计；`mission_lost` 丢弃当前小关失败耗时，并在 `round_start` 或
+同图重新初始化后重新开始。没有过渡事件的新地图会开始新的战役累计。
+
+配套 `cs2hud444` 的六个数字 VMT 不再使用全局 `CurrentTime` proxy。`EngineVGui::Paint` 在原 HUD
+绘制前通过 `IMaterialSystem::FindMaterial()` 获取指定材质，并把时、分、秒六位数字写入各自的
+`$frame`。材质引用仅在关卡运行期间持有，不会替换全局材质代理；未安装配套 HUD 时每关只尝试解析
+一次并静默停用显示接管。
+
+## 七、菜单、准星和 L4N 协调
+
+`EngineVGui::Paint` 在原函数绘制 HUD 前更新战役计时材质；原函数返回后，在
+`PAINT_INGAMEPANELS`：
 
 1. 根据 ADS 配置和当前武器判断是否隐藏准星。
 2. 检查 `L4N::Env.HudVisible()`，L4N 隐藏 HUD 时不与其争用准星。
@@ -181,7 +195,7 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 
 其中只有 HUD 可见性直接参与每帧准星门控；其他值主要用于一次性冲突诊断日志。
 
-## 七、配置与日志
+## 八、配置与日志
 
 | 文件/变量 | 当前实际用途 |
 |---|---|
@@ -196,7 +210,7 @@ JSON 保存使用同目录临时文件和 `MoveFileEx(..., MOVEFILE_REPLACE_EXIS
 若 JSON 包含 `AdsSupport`，后执行的 `AdsMgr.LoadConfig()` 会覆盖 INI 读入的 ADS 开关，因此已有
 JSON 配置时 INI 通常不是最终权威值。
 
-## 八、退出与卸载
+## 九、退出与卸载
 
 `DLL_PROCESS_DETACH` 当前直接调用 `ModuleEntry.undo()`：
 

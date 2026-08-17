@@ -219,7 +219,7 @@ public:
         const char* required[] = {
             "client.dll", "engine.dll", "vgui2.dll", "datacache.dll",
             "vguimatsurface.dll", "inputsystem.dll", "filesystem_stdio.dll",
-            "vstdlib.dll",
+            "vstdlib.dll", "materialsystem.dll",
         };
         constexpr int kN = sizeof(required) / sizeof(required[0]);
         bool allReady = false;

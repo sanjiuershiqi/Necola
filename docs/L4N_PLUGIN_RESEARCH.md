@@ -191,8 +191,8 @@ Necola 的核心 ADS Hook 使用 Source 接口和 pattern scan，不调用已知
   `l4n_vm_sway` 和 `l4n_vm_sway_ignore_helpinghand`。
 - 准星逻辑尊重 L4N HUD 总开关，并直接修改 `crosshair` 根 ConVar。
 
-当前初始化尝试获取 17 个 Source 接口，并在安装前验证当前功能必需的接口和 pattern。随后安装
-5 个 Raw hook 组中的 11 个 MinHook detour，另替换 3 个 RecvProp proxy；任何必需步骤失败都会
+当前初始化尝试获取 18 个 Source 接口，并在安装前验证当前功能必需的接口和 pattern。随后安装
+5 个 Raw hook 组中的 12 个 MinHook detour，另替换 3 个 RecvProp proxy；任何必需步骤失败都会
 中止并回滚已安装的 Hook。ADS 状态是 `NONE + LEVEL1..4`，MIXED 是可与这些层级组合的独立状态。
 
 Pattern 失败只能证明特定二进制环境与签名不匹配，不能仅凭失败断言“L4N 修改了 client.dll”。

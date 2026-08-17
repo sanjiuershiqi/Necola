@@ -1,6 +1,7 @@
 #include "GameEventManager.h"
 
 #include "../../Feature/AdsSupport/AdsSupport.h"
+#include "../../Feature/CampaignTimer/CampaignTimer.h"
 
 using namespace Hooks;
 
@@ -9,6 +10,7 @@ bool __fastcall GameEventManager::FireEventClient::Detour(void* ecx, void* edx, 
 
 	// Reset ADS/MIXED state on map transition
 	if(strcmp("map_transition", name) == 0) {
+		F::CampaignTimerMgr.OnMapTransition();
 		if (G::Vars.enableAdsSupport) {
 			F::AdsMgr.SilentExitADS();
 		}
@@ -16,9 +18,14 @@ bool __fastcall GameEventManager::FireEventClient::Detour(void* ecx, void* edx, 
 
 	// Reset ADS/MIXED state on mission lost
 	if(strcmp("mission_lost", name) == 0) {
+		F::CampaignTimerMgr.OnMissionLost();
 		if (G::Vars.enableAdsSupport) {
 			F::AdsMgr.SilentExitADS();
 		}
+	}
+
+	if (strcmp("round_start", name) == 0) {
+		F::CampaignTimerMgr.OnRoundStart();
 	}
 
 	// Reset ADS state on local player death

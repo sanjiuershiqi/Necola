@@ -96,3 +96,10 @@ build/
 # End of https://www.toptal.com/developers/gitignore/api/xmake
 
 L4N_v2.43.0.7z
+
+# Local third-party HUD analysis and generated replacement artifacts
+/cs2hud444.vpk
+/cs2hud444_campaign_timer.vpk
+/cs2hud444_unpacked/
+/tools/
+/exceptions.txt

@@ -135,6 +135,8 @@ necola_ads
 necola_ads_mixed
 necola_ads_foreceback
 necola_ads_back
+necola_timer_status
+necola_timer_reset
 ```
 
 可直接在控制台使用 `bind`：
@@ -149,6 +151,14 @@ bind MOUSE3 necola_ads
 Necola 不读取 `FeatureConfig.json` 中的 `KeyBinds` 数组，也不会自动执行 `bind`。
 
 菜单打开时会消费数字键及数字小键盘的按下/释放，避免游戏绑定穿透；`0`、Enter、Esc 返回。
+
+### 3.4 `cs2hud444` 战役计时适配
+
+`cs2hud444_timer_patch/materials/vgui/yarou/hud_time/` 保存六个可审查的 VMT 覆盖文件。它们移除
+`CurrentTime` proxy，保留 `$frame` 供 `CampaignTimer` 写入。原始第三方 VPK、完整解包目录、下载
+工具和重新打包的 VPK 都是本地生成物，不进入仓库。
+
+完整安装与计时规则见 [`CAMPAIGN_TIMER.md`](CAMPAIGN_TIMER.md)。
 
 ## 四、日志与调试
 
@@ -246,12 +256,13 @@ l4nscope 与 Necola 一定冲突并非已证实结论，需要按武器和 MOD �
 修改核心逻辑后至少验证：
 
 1. x86 Release 构建和 CI artifact。
-2. 干净 L4N 环境启动，17 个接口和必需 pattern 全部有效。
+2. 干净 L4N 环境启动，18 个接口和必需 pattern 全部有效。
 3. 普通武器、原生 scope 武器、双持手枪和无 ADS 动画武器。
 4. ADS 1-4 层跳级、MIXED 组合、forceback 和 back。
 5. 换枪、死亡、切图、失去连接后的状态复位。
 6. `l4n_patch_hud_scope`、HUD 可见性、sway 和 viewmodel offset 组合。
 7. 菜单、准星用户值恢复和配置写回。
+8. 战役计时跨关累计、任务失败重开、手动重置和配套 HUD 六位数字。
 
 仓库当前没有自动化测试、静态分析或警告即错误策略。适合首先抽离为纯逻辑测试的部分是 ADS
 状态转换、activity 映射、配置往返和 pattern 解析。

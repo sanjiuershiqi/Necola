@@ -6,6 +6,7 @@
 #include "../../Vars.h"
 #include "../../Feature/MenuManager/MenuManager.h"
 #include "../../Feature/AdsSupport/AdsSupport.h"
+#include "../../Feature/CampaignTimer/CampaignTimer.h"
 
 using namespace Hooks;
 
@@ -56,6 +57,9 @@ void EngineVGui::RestoreCrosshairForUnload() {
 
 void __fastcall EngineVGui::Paint::Detour(void* ecx, void* edx, int mode)
 {
+	if (mode == PAINT_INGAMEPANELS) {
+		F::CampaignTimerMgr.UpdateHudMaterials();
+	}
 	Table.Original<FN>(Index)(ecx, edx, mode);
 
 	if (mode == PAINT_INGAMEPANELS) {
