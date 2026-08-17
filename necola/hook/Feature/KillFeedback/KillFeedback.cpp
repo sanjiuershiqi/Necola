@@ -174,6 +174,8 @@ KillFeedback::SpecialVictim KillFeedback::GetSpecialVictim(IGameEvent* event) co
 			}
 		}
 	}
+	const auto tracked = m_playerDamage.find(event->GetInt("userid", 0));
+	if (tracked != m_playerDamage.end()) return tracked->second.victim;
 
 	const char* name = event->GetString("victimname", "");
 	if (_stricmp(name, "Smoker") == 0) return SpecialVictim::Smoker;
@@ -242,7 +244,9 @@ KillFeedback::KillMethod KillFeedback::ClassifySpecialKill(IGameEvent* event) co
 	if (Contains(weapon, "melee") || Contains(weapon, "chainsaw")) {
 		return KillMethod::Melee;
 	}
-	if (event->GetBool("headshot", false)) return KillMethod::Headshot;
+	if (event->GetBool("headshot", false) || event->GetInt("hitgroup", 0) == KF_HITGROUP_HEAD) {
+		return KillMethod::Headshot;
+	}
 	if (!weapon || weapon[0] == '\0') {
 		if (IsActiveWeaponExplosion()) return KillMethod::Explosion;
 		if (IsActiveWeaponMelee()) return KillMethod::Melee;
@@ -284,6 +288,32 @@ bool KillFeedback::IsWitchEntity(int entityId) const {
 	return clientClass && Contains(clientClass->m_pNetworkName, "Witch");
 }
 
+void KillFeedback::HandleSpecialKill(SpecialVictim victim, KillMethod method, int victimUserId, const char* source) {
+	const float now = SimulationTime();
+	if (victimUserId > 0 && victimUserId == m_lastSpecialVictimUserId &&
+		now - m_lastSpecialKillTime <= 0.5f) {
+		KFLog("special duplicate ignored source=%s victim=%s userid=%d", source,
+			SpecialVictimName(victim), victimUserId);
+		return;
+	}
+	if (!G::Vars.killFeedbackSpecial || !IsSpecialVictimEnabled(victim)) {
+		KFLog("special ignored source=%s victim=%s userid=%d master=%d victimEnabled=%d", source,
+			SpecialVictimName(victim), victimUserId, G::Vars.killFeedbackSpecial,
+			IsSpecialVictimEnabled(victim));
+		return;
+	}
+	if (!IsMethodEnabled(method)) {
+		KFLog("special ignored source=%s victim=%s method=%s disabled", source,
+			SpecialVictimName(victim), MethodName(method));
+		return;
+	}
+	m_lastSpecialVictimUserId = victimUserId;
+	m_lastSpecialKillTime = now;
+	KFLog("special accepted source=%s victim=%s userid=%d method=%s", source,
+		SpecialVictimName(victim), victimUserId, MethodName(method));
+	Trigger(method);
+}
+
 void KillFeedback::OnGameEvent(IGameEvent* event) {
 	if (!event) return;
 	const char* name = event->GetName();
@@ -314,6 +344,44 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		}
 		return;
 	}
+	if (std::strcmp(name, "player_hurt") == 0) {
+		if (!G::Vars.killFeedbackSpecial || !IsLocalAttacker(event, "attacker")) return;
+		const int victimUserId = event->GetInt("userid", 0);
+		const SpecialVictim victim = GetSpecialVictim(event);
+		if (victim == SpecialVictim::Unknown) return;
+		const KillMethod hurtMethod = ClassifySpecialKill(event);
+		m_playerDamage[victimUserId] = {victim, hurtMethod, SimulationTime()};
+		KFLog("tracked player_hurt victim=%s userid=%d health=%d method=%s weapon=%s type=%d hitgroup=%d",
+			SpecialVictimName(victim), victimUserId, event->GetInt("health", -1), MethodName(hurtMethod),
+			event->GetString("weapon", ""), event->GetInt("type", 0), event->GetInt("hitgroup", 0));
+		if (event->GetInt("health", 1) <= 0) {
+			HandleSpecialKill(victim, hurtMethod, victimUserId, "player_hurt");
+		}
+		return;
+	}
+
+	SpecialVictim dedicatedVictim = SpecialVictim::Unknown;
+	if (std::strcmp(name, "boomer_exploded") == 0) dedicatedVictim = SpecialVictim::Boomer;
+	else if (std::strcmp(name, "charger_killed") == 0) dedicatedVictim = SpecialVictim::Charger;
+	else if (std::strcmp(name, "spitter_killed") == 0) dedicatedVictim = SpecialVictim::Spitter;
+	else if (std::strcmp(name, "jockey_killed") == 0) dedicatedVictim = SpecialVictim::Jockey;
+	else if (std::strcmp(name, "tank_killed") == 0) dedicatedVictim = SpecialVictim::Tank;
+	if (dedicatedVictim != SpecialVictim::Unknown) {
+		if (!IsLocalAttacker(event, "attacker")) return;
+		const int victimUserId = event->GetInt("userid", 0);
+		KillMethod dedicatedMethod = KillMethod::Firearm;
+		const auto tracked = m_playerDamage.find(victimUserId);
+		if (tracked != m_playerDamage.end()) dedicatedMethod = tracked->second.method;
+		if ((dedicatedVictim == SpecialVictim::Charger && event->GetBool("melee", false)) ||
+			(dedicatedVictim == SpecialVictim::Tank && event->GetBool("melee_only", false))) {
+			dedicatedMethod = KillMethod::Melee;
+		} else if (dedicatedVictim == SpecialVictim::Jockey && event->GetString("weapon", "")[0] != '\0') {
+			dedicatedMethod = ClassifySpecialKill(event);
+		}
+		HandleSpecialKill(dedicatedVictim, dedicatedMethod, victimUserId, name);
+		m_playerDamage.erase(victimUserId);
+		return;
+	}
 	KillMethod method = KillMethod::Firearm;
 	if (std::strcmp(name, "infected_death") == 0) {
 		m_infectedDamage.erase(event->GetInt("infected_id", 0));
@@ -331,8 +399,13 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 			event->GetInt("attacker", 0), local, G::Vars.killFeedbackSpecial,
 			SpecialVictimName(victim), victimEnabled,
 			event->GetString("weapon", ""), event->GetBool("headshot", false), event->GetInt("type", 0));
-		if (!G::Vars.killFeedbackSpecial || !local || !victimEnabled) return;
-		method = ClassifySpecialKill(event);
+		if (!local || victim == SpecialVictim::Unknown) return;
+		const int victimUserId = event->GetInt("userid", 0);
+		const auto tracked = m_playerDamage.find(victimUserId);
+		method = tracked != m_playerDamage.end() ? tracked->second.method : ClassifySpecialKill(event);
+		HandleSpecialKill(victim, method, victimUserId, "player_death");
+		m_playerDamage.erase(victimUserId);
+		return;
 	} else if (std::strcmp(name, "witch_killed") == 0) {
 		const bool local = IsLocalAttacker(event, "userid");
 		KFLog("event=witch_killed userid=%d local=%d specialEnabled=%d witchEnabled=%d witchid=%d meleeOnly=%d",
@@ -536,6 +609,9 @@ void KillFeedback::Reset() {
 	m_streak = 0;
 	m_lastKillTime = -1000.0f;
 	m_infectedDamage.clear();
+	m_playerDamage.clear();
+	m_lastSpecialVictimUserId = 0;
+	m_lastSpecialKillTime = -1000.0f;
 }
 
 void KillFeedback::Shutdown() {

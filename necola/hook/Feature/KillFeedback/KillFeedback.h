@@ -54,6 +54,7 @@ private:
 	bool IsLocalAttacker(IGameEvent* event, const char* field) const;
 	SpecialVictim GetSpecialVictim(IGameEvent* event) const;
 	bool IsSpecialVictimEnabled(SpecialVictim victim) const;
+	void HandleSpecialKill(SpecialVictim victim, KillMethod method, int victimUserId, const char* source);
 	KillMethod ClassifyCommonKill(IGameEvent* event) const;
 	KillMethod ClassifySpecialKill(IGameEvent* event) const;
 	KillMethod ClassifyWitchKill(IGameEvent* event) const;
@@ -84,7 +85,15 @@ private:
 		KillMethod method = KillMethod::Firearm;
 		float time = 0.0f;
 	};
+	struct PlayerDamageRecord {
+		SpecialVictim victim = SpecialVictim::Unknown;
+		KillMethod method = KillMethod::Firearm;
+		float time = 0.0f;
+	};
 	std::unordered_map<int, DamageRecord> m_infectedDamage;
+	std::unordered_map<int, PlayerDamageRecord> m_playerDamage;
+	int m_lastSpecialVictimUserId = 0;
+	float m_lastSpecialKillTime = -1000.0f;
 };
 
 namespace F { inline KillFeedback KillFeedbackMgr; }
