@@ -55,6 +55,14 @@ public:
     bool killFeedbackLog = true;
     bool killFeedbackCommon = true;
     bool killFeedbackSpecial = true;
+    bool killFeedbackSmoker = true;
+    bool killFeedbackBoomer = true;
+    bool killFeedbackHunter = true;
+    bool killFeedbackSpitter = true;
+    bool killFeedbackJockey = true;
+    bool killFeedbackCharger = true;
+    bool killFeedbackTank = true;
+    bool killFeedbackWitch = true;
     bool killFeedbackVisual = true;
     bool killFeedbackSound = true;
     bool killFeedbackFirearm = true;

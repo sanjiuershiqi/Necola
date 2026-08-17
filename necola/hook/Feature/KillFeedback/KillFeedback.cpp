@@ -87,6 +87,14 @@ void KillFeedback::LoadConfig(const nlohmann::json& doc) {
 	G::Vars.killFeedbackLog = readBool("LogEnabled", true);
 	G::Vars.killFeedbackCommon = readBool("CommonEnabled", true);
 	G::Vars.killFeedbackSpecial = readBool("SpecialEnabled", true);
+	G::Vars.killFeedbackSmoker = readBool("SmokerEnabled", true);
+	G::Vars.killFeedbackBoomer = readBool("BoomerEnabled", true);
+	G::Vars.killFeedbackHunter = readBool("HunterEnabled", true);
+	G::Vars.killFeedbackSpitter = readBool("SpitterEnabled", true);
+	G::Vars.killFeedbackJockey = readBool("JockeyEnabled", true);
+	G::Vars.killFeedbackCharger = readBool("ChargerEnabled", true);
+	G::Vars.killFeedbackTank = readBool("TankEnabled", true);
+	G::Vars.killFeedbackWitch = readBool("WitchEnabled", true);
 	G::Vars.killFeedbackVisual = readBool("VisualEnabled", true);
 	G::Vars.killFeedbackSound = readBool("SoundEnabled", true);
 	G::Vars.killFeedbackFirearm = readBool("FirearmEnabled", true);
@@ -115,6 +123,14 @@ void KillFeedback::SaveConfig(nlohmann::json& doc) const {
 	section["LogEnabled"] = G::Vars.killFeedbackLog;
 	section["CommonEnabled"] = G::Vars.killFeedbackCommon;
 	section["SpecialEnabled"] = G::Vars.killFeedbackSpecial;
+	section["SmokerEnabled"] = G::Vars.killFeedbackSmoker;
+	section["BoomerEnabled"] = G::Vars.killFeedbackBoomer;
+	section["HunterEnabled"] = G::Vars.killFeedbackHunter;
+	section["SpitterEnabled"] = G::Vars.killFeedbackSpitter;
+	section["JockeyEnabled"] = G::Vars.killFeedbackJockey;
+	section["ChargerEnabled"] = G::Vars.killFeedbackCharger;
+	section["TankEnabled"] = G::Vars.killFeedbackTank;
+	section["WitchEnabled"] = G::Vars.killFeedbackWitch;
 	section["VisualEnabled"] = G::Vars.killFeedbackVisual;
 	section["SoundEnabled"] = G::Vars.killFeedbackSound;
 	section["FirearmEnabled"] = G::Vars.killFeedbackFirearm;
@@ -139,13 +155,49 @@ bool KillFeedback::IsLocalAttacker(IGameEvent* event, const char* field) const {
 		I::EngineClient->GetPlayerForUserID(attackerUserId) == I::EngineClient->GetLocalPlayer();
 }
 
-bool KillFeedback::IsSpecialVictim(IGameEvent* event) const {
-	if (!event || !I::EngineClient || !I::ClientEntityList) return false;
+KillFeedback::SpecialVictim KillFeedback::GetSpecialVictim(IGameEvent* event) const {
+	if (!event || !I::EngineClient) return SpecialVictim::Unknown;
 	const int victim = I::EngineClient->GetPlayerForUserID(event->GetInt("userid", 0));
-	if (victim <= 0) return false;
-	auto* entity = I::ClientEntityList->GetClientEntity(victim);
-	auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
-	return player && player->GetTeamNumber() == 3;
+	if (victim > 0 && I::ClientEntityList) {
+		auto* entity = I::ClientEntityList->GetClientEntity(victim);
+		auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
+		if (player) {
+			switch (player->m_zombieClass()) {
+				case CLASS_SMOKER: return SpecialVictim::Smoker;
+				case CLASS_BOOMER: return SpecialVictim::Boomer;
+				case CLASS_HUNTER: return SpecialVictim::Hunter;
+				case CLASS_SPITTER: return SpecialVictim::Spitter;
+				case CLASS_JOCKEY: return SpecialVictim::Jockey;
+				case CLASS_CHARGER: return SpecialVictim::Charger;
+				case CLASS_TANK: return SpecialVictim::Tank;
+				default: break;
+			}
+		}
+	}
+
+	const char* name = event->GetString("victimname", "");
+	if (_stricmp(name, "Smoker") == 0) return SpecialVictim::Smoker;
+	if (_stricmp(name, "Boomer") == 0) return SpecialVictim::Boomer;
+	if (_stricmp(name, "Hunter") == 0) return SpecialVictim::Hunter;
+	if (_stricmp(name, "Spitter") == 0) return SpecialVictim::Spitter;
+	if (_stricmp(name, "Jockey") == 0) return SpecialVictim::Jockey;
+	if (_stricmp(name, "Charger") == 0) return SpecialVictim::Charger;
+	if (_stricmp(name, "Tank") == 0) return SpecialVictim::Tank;
+	return SpecialVictim::Unknown;
+}
+
+bool KillFeedback::IsSpecialVictimEnabled(SpecialVictim victim) const {
+	switch (victim) {
+		case SpecialVictim::Smoker: return G::Vars.killFeedbackSmoker;
+		case SpecialVictim::Boomer: return G::Vars.killFeedbackBoomer;
+		case SpecialVictim::Hunter: return G::Vars.killFeedbackHunter;
+		case SpecialVictim::Spitter: return G::Vars.killFeedbackSpitter;
+		case SpecialVictim::Jockey: return G::Vars.killFeedbackJockey;
+		case SpecialVictim::Charger: return G::Vars.killFeedbackCharger;
+		case SpecialVictim::Tank: return G::Vars.killFeedbackTank;
+		case SpecialVictim::Witch: return G::Vars.killFeedbackWitch;
+		default: return false;
+	}
 }
 
 bool KillFeedback::IsActiveWeaponMelee() const {
@@ -273,18 +325,20 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		method = ClassifyCommonKill(event);
 	} else if (std::strcmp(name, "player_death") == 0) {
 		const bool local = IsLocalAttacker(event, "attacker");
-		const bool special = IsSpecialVictim(event);
-		KFLog("event=player_death attacker=%d local=%d specialEnabled=%d specialVictim=%d weapon=%s headshot=%d type=%d",
-			event->GetInt("attacker", 0), local, G::Vars.killFeedbackSpecial, special,
+		const SpecialVictim victim = GetSpecialVictim(event);
+		const bool victimEnabled = IsSpecialVictimEnabled(victim);
+		KFLog("event=player_death attacker=%d local=%d specialEnabled=%d victim=%s victimEnabled=%d weapon=%s headshot=%d type=%d",
+			event->GetInt("attacker", 0), local, G::Vars.killFeedbackSpecial,
+			SpecialVictimName(victim), victimEnabled,
 			event->GetString("weapon", ""), event->GetBool("headshot", false), event->GetInt("type", 0));
-		if (!G::Vars.killFeedbackSpecial || !local || !special) return;
+		if (!G::Vars.killFeedbackSpecial || !local || !victimEnabled) return;
 		method = ClassifySpecialKill(event);
 	} else if (std::strcmp(name, "witch_killed") == 0) {
 		const bool local = IsLocalAttacker(event, "userid");
-		KFLog("event=witch_killed userid=%d local=%d specialEnabled=%d witchid=%d meleeOnly=%d",
-			event->GetInt("userid", 0), local, G::Vars.killFeedbackSpecial,
+		KFLog("event=witch_killed userid=%d local=%d specialEnabled=%d witchEnabled=%d witchid=%d meleeOnly=%d",
+			event->GetInt("userid", 0), local, G::Vars.killFeedbackSpecial, G::Vars.killFeedbackWitch,
 			event->GetInt("witchid", 0), event->GetBool("melee_only", false));
-		if (!G::Vars.killFeedbackSpecial || !local) return;
+		if (!G::Vars.killFeedbackSpecial || !G::Vars.killFeedbackWitch || !local) return;
 		method = ClassifyWitchKill(event);
 		m_infectedDamage.erase(event->GetInt("witchid", 0));
 	} else {
@@ -366,6 +420,20 @@ const char* KillFeedback::MethodName(KillMethod method) {
 	return "unknown";
 }
 
+const char* KillFeedback::SpecialVictimName(SpecialVictim victim) {
+	switch (victim) {
+		case SpecialVictim::Smoker: return "smoker";
+		case SpecialVictim::Boomer: return "boomer";
+		case SpecialVictim::Hunter: return "hunter";
+		case SpecialVictim::Spitter: return "spitter";
+		case SpecialVictim::Jockey: return "jockey";
+		case SpecialVictim::Charger: return "charger";
+		case SpecialVictim::Tank: return "tank";
+		case SpecialVictim::Witch: return "witch";
+		default: return "unknown";
+	}
+}
+
 void KillFeedback::StartEffect(KillFeedbackEffect effect, int streakSound) {
 	Stop();
 	m_effect = effect;
@@ -443,7 +511,7 @@ void KillFeedback::Draw() {
 	int screenHeight = 0;
 	I::MatSystemSurface->GetScreenSize(screenWidth, screenHeight);
 	if (screenWidth <= 0 || screenHeight <= 0 || m_textureId < 0) return;
-	int drawWidth = screenWidth;
+	int drawWidth = std::min(screenWidth, 2048);
 	int drawHeight = drawWidth / 2;
 	if (drawHeight > screenHeight) {
 		drawHeight = screenHeight;

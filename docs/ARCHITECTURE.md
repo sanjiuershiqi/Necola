@@ -198,8 +198,9 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 ### 7.1 击杀反馈
 
 `KillFeedback` 只处理本地玩家产生的 `infected_death`、`player_death` 和 `witch_killed`。普通感染者
-与特感分别受开关控制，Witch 归入特感。`infected_hurt` 仅用于保存 Witch 最近一次本地伤害的
-类型，不直接触发反馈。
+与特感分别受总开关控制，Smoker、Boomer、Hunter、Spitter、Jockey、Charger、Tank 和 Witch 另有
+独立开关。玩家型特感优先从死亡实体的 `m_zombieClass` 识别，实体不可用时回退 `victimname`。
+`infected_hurt` 仅用于保存 Witch 最近一次本地伤害的类型，不直接触发反馈。
 
 击杀先分类为普通枪械、爆头、近战或爆炸；启用连杀时，3 秒窗口内第二杀起改用 `2kill..6kill`
 动画，声音可递进到 `multikill_10.mp3`。`EngineVGui::Paint` 通过

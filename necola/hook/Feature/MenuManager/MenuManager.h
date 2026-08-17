@@ -651,6 +651,19 @@ public:
 			addKillSwitch(killFeedbackMenu, "视觉动画", &G::Vars.killFeedbackVisual, true);
 			addKillSwitch(killFeedbackMenu, "击杀音效", &G::Vars.killFeedbackSound, false);
 
+			auto specialMenu = killFeedbackMenu->addSubMenu("特感分类设置", "kill_feedback_specials", "特感分类设置");
+			registerMenu(specialMenu);
+			if (specialMenu) {
+				addKillSwitch(specialMenu, "Smoker", &G::Vars.killFeedbackSmoker, false);
+				addKillSwitch(specialMenu, "Boomer", &G::Vars.killFeedbackBoomer, false);
+				addKillSwitch(specialMenu, "Hunter", &G::Vars.killFeedbackHunter, false);
+				addKillSwitch(specialMenu, "Spitter", &G::Vars.killFeedbackSpitter, false);
+				addKillSwitch(specialMenu, "Jockey", &G::Vars.killFeedbackJockey, false);
+				addKillSwitch(specialMenu, "Charger", &G::Vars.killFeedbackCharger, false);
+				addKillSwitch(specialMenu, "Tank", &G::Vars.killFeedbackTank, false);
+				addKillSwitch(specialMenu, "Witch", &G::Vars.killFeedbackWitch, false);
+			}
+
 			auto methodMenu = killFeedbackMenu->addSubMenu("击杀方式", "kill_feedback_methods", "击杀方式");
 			registerMenu(methodMenu);
 			if (methodMenu) {

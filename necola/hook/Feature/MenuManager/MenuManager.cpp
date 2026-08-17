@@ -156,6 +156,17 @@ void InGameMenu::InitConfigSwitches() {
 		killMethodMenu->setSwitchStateByName("爆炸", G::Vars.killFeedbackExplosion);
 		killMethodMenu->setSwitchStateByName("连杀效果", G::Vars.killFeedbackMultiKill);
 	}
+	auto killSpecialMenu = FindMenuById("kill_feedback_specials");
+	if (killSpecialMenu) {
+		killSpecialMenu->setSwitchStateByName("Smoker", G::Vars.killFeedbackSmoker);
+		killSpecialMenu->setSwitchStateByName("Boomer", G::Vars.killFeedbackBoomer);
+		killSpecialMenu->setSwitchStateByName("Hunter", G::Vars.killFeedbackHunter);
+		killSpecialMenu->setSwitchStateByName("Spitter", G::Vars.killFeedbackSpitter);
+		killSpecialMenu->setSwitchStateByName("Jockey", G::Vars.killFeedbackJockey);
+		killSpecialMenu->setSwitchStateByName("Charger", G::Vars.killFeedbackCharger);
+		killSpecialMenu->setSwitchStateByName("Tank", G::Vars.killFeedbackTank);
+		killSpecialMenu->setSwitchStateByName("Witch", G::Vars.killFeedbackWitch);
+	}
 	RefreshRootLabels();
 	RefreshCrosshairModeUI();
 	RefreshAppearanceLabels();

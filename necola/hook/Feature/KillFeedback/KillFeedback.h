@@ -39,9 +39,21 @@ private:
 		Melee,
 		Explosion,
 	};
+	enum class SpecialVictim {
+		Unknown,
+		Smoker,
+		Boomer,
+		Hunter,
+		Spitter,
+		Jockey,
+		Charger,
+		Tank,
+		Witch,
+	};
 
 	bool IsLocalAttacker(IGameEvent* event, const char* field) const;
-	bool IsSpecialVictim(IGameEvent* event) const;
+	SpecialVictim GetSpecialVictim(IGameEvent* event) const;
+	bool IsSpecialVictimEnabled(SpecialVictim victim) const;
 	KillMethod ClassifyCommonKill(IGameEvent* event) const;
 	KillMethod ClassifySpecialKill(IGameEvent* event) const;
 	KillMethod ClassifyWitchKill(IGameEvent* event) const;
@@ -58,6 +70,7 @@ private:
 	static const char* EffectName(KillFeedbackEffect effect);
 	static int EffectStreak(KillFeedbackEffect effect);
 	static const char* MethodName(KillMethod method);
+	static const char* SpecialVictimName(SpecialVictim victim);
 
 	KillFeedbackEffect m_effect = KillFeedbackEffect::Kill1;
 	float m_animationStart = 0.0f;
