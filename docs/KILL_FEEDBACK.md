@@ -2,12 +2,16 @@
 
 ## 安装
 
-素材与插件 DLL 分离。把 `CF动态击杀反馈` 中以下两个目录复制到 `<L4D2>/left4dead2/`：
+素材与插件 DLL 分离。优先使用工作区生成的 `CF动态击杀反馈优化版`，把其中以下两个目录放入
+`<L4D2>/left4dead2/`：
 
 ```text
-materials/overlays/cf/
+materials/overlays/cf_optimized/
 sound/cf/
 ```
+
+请移除旧的 `materials/overlays/cf/` 单帧素材，避免游戏继续索引 1530 余个文件。优化版把每种效果
+的 85 张 VTF 合并成一个 85 帧 VTF，素材文件总数为 32；它不是 VPK，仍是普通外部目录。
 
 不要安装：
 
@@ -48,7 +52,7 @@ Necola 已替代该 SMX 的事件、连杀、逐帧动画和声音逻辑。素�
 - `player_death` 处理 Smoker、Boomer、Hunter、Spitter、Jockey、Charger 和 Tank。
 - `witch_killed` 处理 Witch；其击杀方式由最近一次本地 `infected_hurt` 记录判断。
 - 连杀窗口默认 3 秒，回合开始、任务失败和地图过渡时清空。
-- 动画共 85 帧，以 30 FPS 播放；新击杀会中断并替换当前动画。
+- 动画共 85 帧，以 30 FPS 播放；每种效果只加载一次多帧 VTF，后续通过 VGUI 直接切换帧。
 - 视觉由 VGUI 按素材原始 2:1 比例居中绘制，不占用全局 `r_screenoverlay`。
 - 当屏幕宽度超过 2048 时保持 2048×1024 原生绘制尺寸，避免将原素材放大到 4K 后变模糊。
 
