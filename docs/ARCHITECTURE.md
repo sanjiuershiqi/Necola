@@ -202,9 +202,10 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 类型，不直接触发反馈。
 
 击杀先分类为普通枪械、爆头、近战或爆炸；启用连杀时，3 秒窗口内第二杀起改用 `2kill..6kill`
-动画，声音可递进到 `multikill_10.mp3`。视觉使用 `IMatSystemSurface` 直接绘制外部
-`overlays/cf/<effect>_<frame>` 材质，不执行 `r_screenoverlay`，也不依赖 SourceMod。动画使用
-`GlobalVars->realtime`，连杀窗口使用 `curtime`。
+动画，声音可递进到 `multikill_10.mp3`。`EngineVGui::Paint` 通过
+`IMatSystemSurface::DrawSetTextureFile()` 让 VGUI 自行加载当前外部帧，再用 `DrawTexturedRect()`
+绘制；不调用 `IMaterialSystem`、不修改全局 `r_screenoverlay`，也不依赖 SourceMod。声音通过 VGUI
+本地播放接口输出。动画使用 `GlobalVars->realtime`，连杀窗口使用 `curtime`。
 
 ## 八、配置与日志
 

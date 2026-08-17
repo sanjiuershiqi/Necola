@@ -310,19 +310,15 @@ void KillFeedback::PlayEffectSound(KillFeedbackEffect effect, int streakSound) c
 	if (I::MatSystemSurface) I::MatSystemSurface->PlaySound(sample);
 }
 
-bool KillFeedback::BindFrameMaterial(int frame) {
-	if (!I::MaterialSystem || !I::MatSystemSurface) return false;
+bool KillFeedback::BindFrameTexture(int frame) {
+	if (!I::MatSystemSurface) return false;
+	if (m_textureId < 0) m_textureId = I::MatSystemSurface->CreateNewTextureID();
+	if (m_textureId < 0) return false;
 	char materialName[128] = {};
 	_snprintf_s(materialName, sizeof(materialName), _TRUNCATE,
 		"overlays/cf/%s_%03d", EffectName(m_effect), frame);
-	IMaterial* material = I::MaterialSystem->FindMaterial(materialName, TEXTURE_GROUP_VGUI, false);
-	if (!material || material->IsErrorMaterial()) return false;
-
-	material->IncrementReferenceCount();
-	if (m_textureId < 0) m_textureId = I::MatSystemSurface->CreateNewTextureID();
-	I::MatSystemSurface->DrawSetTextureMaterial(m_textureId, material);
-	ReleaseMaterial();
-	m_material = material;
+	I::MatSystemSurface->DrawSetTextureFile(m_textureId, materialName, 1, false);
+	if (!I::MatSystemSurface->IsTextureIDValid(m_textureId)) return false;
 	m_boundFrame = frame;
 	return true;
 }
@@ -334,7 +330,7 @@ void KillFeedback::Draw() {
 		Stop();
 		return;
 	}
-	if (frame != m_boundFrame && !BindFrameMaterial(frame)) {
+	if (frame != m_boundFrame && !BindFrameTexture(frame)) {
 		Stop();
 		return;
 	}
@@ -356,19 +352,9 @@ void KillFeedback::Draw() {
 	I::MatSystemSurface->DrawTexturedRect(x, y, x + drawWidth, y + drawHeight);
 }
 
-void KillFeedback::ReleaseMaterial() {
-	if (m_material) m_material->DecrementReferenceCount();
-	m_material = nullptr;
-}
-
 void KillFeedback::Stop() {
 	m_animating = false;
 	m_boundFrame = -1;
-	ReleaseMaterial();
-	if (m_textureId >= 0 && I::MatSystemSurface) {
-		I::MatSystemSurface->DeleteTextureByID(m_textureId);
-	}
-	m_textureId = -1;
 }
 
 void KillFeedback::Reset() {

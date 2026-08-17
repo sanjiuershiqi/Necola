@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../../../sdk/SDK.h"
-#include "../../../sdk/l4d2/interfaces/MaterialSystem.h"
 
 #include <cstdint>
 #include <string>
@@ -52,9 +51,8 @@ private:
 	bool IsActiveWeaponExplosion() const;
 	void Trigger(KillMethod method);
 	void StartEffect(KillFeedbackEffect effect, int streakSound);
-	bool BindFrameMaterial(int frame);
+	bool BindFrameTexture(int frame);
 	void PlayEffectSound(KillFeedbackEffect effect, int streakSound) const;
-	void ReleaseMaterial();
 
 	static const char* EffectName(KillFeedbackEffect effect);
 	static int EffectStreak(KillFeedbackEffect effect);
@@ -66,7 +64,6 @@ private:
 	int m_boundFrame = -1;
 	int m_textureId = -1;
 	bool m_animating = false;
-	IMaterial* m_material = nullptr;
 	struct DamageRecord {
 		KillMethod method = KillMethod::Firearm;
 		float time = 0.0f;
