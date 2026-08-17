@@ -2,11 +2,13 @@
 
 #include "../../Feature/AdsSupport/AdsSupport.h"
 #include "../../Feature/CampaignTimer/CampaignTimer.h"
+#include "../../Feature/KillFeedback/KillFeedback.h"
 
 using namespace Hooks;
 
 bool __fastcall GameEventManager::FireEventClient::Detour(void* ecx, void* edx,  IGameEvent *event) {
 	const char *name = event->GetName();
+	F::KillFeedbackMgr.OnGameEvent(event);
 
 	// Reset ADS/MIXED state on map transition
 	if(strcmp("map_transition", name) == 0) {

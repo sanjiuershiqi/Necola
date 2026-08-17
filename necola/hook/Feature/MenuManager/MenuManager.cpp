@@ -139,6 +139,22 @@ void InGameMenu::InitConfigSwitches() {
 		toolsMenu->setSwitchStateByName("ADS详细日志", G::Vars.adsLog);
 		toolsMenu->setSwitchStateByName("序列详细日志", G::Vars.sequenceLog);
 	}
+	auto killFeedbackMenu = FindMenuById("kill_feedback");
+	if (killFeedbackMenu) {
+		killFeedbackMenu->setSwitchStateByName("启用击杀反馈", G::Vars.killFeedbackEnabled);
+		killFeedbackMenu->setSwitchStateByName("普通感染者", G::Vars.killFeedbackCommon);
+		killFeedbackMenu->setSwitchStateByName("特殊感染者（含Witch）", G::Vars.killFeedbackSpecial);
+		killFeedbackMenu->setSwitchStateByName("视觉动画", G::Vars.killFeedbackVisual);
+		killFeedbackMenu->setSwitchStateByName("击杀音效", G::Vars.killFeedbackSound);
+	}
+	auto killMethodMenu = FindMenuById("kill_feedback_methods");
+	if (killMethodMenu) {
+		killMethodMenu->setSwitchStateByName("普通枪械", G::Vars.killFeedbackFirearm);
+		killMethodMenu->setSwitchStateByName("爆头", G::Vars.killFeedbackHeadshot);
+		killMethodMenu->setSwitchStateByName("近战", G::Vars.killFeedbackMelee);
+		killMethodMenu->setSwitchStateByName("爆炸", G::Vars.killFeedbackExplosion);
+		killMethodMenu->setSwitchStateByName("连杀效果", G::Vars.killFeedbackMultiKill);
+	}
 	RefreshRootLabels();
 	RefreshCrosshairModeUI();
 	RefreshAppearanceLabels();

@@ -110,7 +110,8 @@ necola\FeatureConfig.json
 若游戏工作目录是根目录，通常解析为 `<L4D2>/necola/FeatureConfig.json`，不是
 `<L4D2>/neko/FeatureConfig.json`。
 
-文件保存 ADS、SequenceModify 和菜单外观配置。模式值会限制在合法范围，错误字段类型回退到默认值。
+文件保存 ADS、SequenceModify、菜单外观和 KillFeedback 配置。模式值会限制在合法范围，错误字段
+类型回退到默认值。
 保存先写 `FeatureConfig.json.tmp`，再通过 `MoveFileEx` 替换正式文件；若现有 JSON 无法解析，菜单
 操作不会用空配置覆盖损坏文件。I/O 失败当前仍只静默保留旧文件。
 
@@ -159,6 +160,32 @@ Necola 不读取 `FeatureConfig.json` 中的 `KeyBinds` 数组，也不会自动
 工具和重新打包的 VPK 都是本地生成物，不进入仓库。
 
 完整安装与计时规则见 [`CAMPAIGN_TIMER.md`](CAMPAIGN_TIMER.md)。
+
+### 3.5 外部击杀反馈素材
+
+击杀反馈素材不进入 DLL，也不提交到仓库。开发环境中的 `CF动态击杀反馈/` 被 `.gitignore` 忽略；
+运行时只需要它的 `materials/overlays/cf/` 和 `sound/cf/`，不需要
+`addons/sourcemod/plugins/hitsound_v2.smx`。
+
+配置段为：
+
+```json
+"KillFeedback": {
+    "Enabled": false,
+    "CommonEnabled": true,
+    "SpecialEnabled": true,
+    "VisualEnabled": true,
+    "SoundEnabled": true,
+    "FirearmEnabled": true,
+    "HeadshotEnabled": true,
+    "MeleeEnabled": true,
+    "ExplosionEnabled": true,
+    "MultiKillEnabled": true,
+    "MultiKillWindow": 3.0
+}
+```
+
+完整安装和分类规则见 [`KILL_FEEDBACK.md`](KILL_FEEDBACK.md)。
 
 ## 四、日志与调试
 
@@ -263,6 +290,7 @@ l4nscope 与 Necola 一定冲突并非已证实结论，需要按武器和 MOD �
 6. `l4n_patch_hud_scope`、HUD 可见性、sway 和 viewmodel offset 组合。
 7. 菜单、准星用户值恢复和配置写回。
 8. 战役计时跨关累计、任务失败重开、手动重置和配套 HUD 六位数字。
+9. 普通感染者、各类特感、Witch 和四种击杀方式的反馈过滤与连杀重置。
 
 仓库当前没有自动化测试、静态分析或警告即错误策略。适合首先抽离为纯逻辑测试的部分是 ADS
 状态转换、activity 映射、配置往返和 pattern 解析。

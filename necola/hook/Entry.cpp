@@ -11,6 +11,7 @@
 #include "./Feature/MenuManager/MenuManager.h"
 #include "./Feature/AdsSupport/AdsSupport.h"
 #include "./Feature/CampaignTimer/CampaignTimer.h"
+#include "./Feature/KillFeedback/KillFeedback.h"
 #include "../sdk/L4NEnv.h"
 #include "../sdk/l4d2/interfaces/IConVar.h"
 #include "../sdk/utils/FeatureConfigManager.h"
@@ -240,6 +241,7 @@ static bool RunLoadBody()
 			G::Vars.ignoreShotgunSequence = readBool("IgnoreShotgunSequence", false);
 		}
 		F::MenuMgr.LoadConfig(doc);
+		F::KillFeedbackMgr.LoadConfig(doc);
 	}
 	ELog("Step 6 done");
 
@@ -312,6 +314,8 @@ void CGlobal_ModuleEntry::undo()
 	Hooks::EngineVGui::RestoreCrosshairForUnload();
 	ELog("undo: release campaign timer materials");
 	F::CampaignTimerMgr.Shutdown();
+	ELog("undo: release kill feedback materials");
+	F::KillFeedbackMgr.Shutdown();
 	ELog("undo: restore RecvProp proxies");
 	F::SModify.RecvPropDataUnhook();
 	ELog("undo: G::Hooks.undo()");

@@ -1,0 +1,77 @@
+#pragma once
+
+#include "../../../sdk/SDK.h"
+#include "../../../sdk/l4d2/interfaces/MaterialSystem.h"
+
+#include <cstdint>
+#include <string>
+#include <unordered_map>
+
+enum class KillFeedbackEffect {
+	Kill1,
+	Kill2,
+	Kill3,
+	Kill4,
+	Kill5,
+	Kill6,
+	Headshot,
+	Melee,
+	Explosion,
+};
+
+class KillFeedback {
+public:
+	void LoadConfig(const nlohmann::json& doc);
+	void SaveConfig(nlohmann::json& doc) const;
+	void SaveConfig() const;
+
+	void OnGameEvent(IGameEvent* event);
+	void Draw();
+	void Stop();
+	void Reset();
+	void Shutdown();
+	void Preview(KillFeedbackEffect effect);
+
+private:
+	enum class KillMethod {
+		Firearm,
+		Headshot,
+		Melee,
+		Explosion,
+	};
+
+	bool IsLocalAttacker(IGameEvent* event, const char* field) const;
+	bool IsSpecialVictim(IGameEvent* event) const;
+	KillMethod ClassifyCommonKill(IGameEvent* event) const;
+	KillMethod ClassifySpecialKill(IGameEvent* event) const;
+	KillMethod ClassifyWitchKill(IGameEvent* event) const;
+	KillMethod ClassifyTrackedDamage(IGameEvent* event) const;
+	bool IsMethodEnabled(KillMethod method) const;
+	bool IsWitchEntity(int entityId) const;
+	bool IsActiveWeaponMelee() const;
+	bool IsActiveWeaponExplosion() const;
+	void Trigger(KillMethod method);
+	void StartEffect(KillFeedbackEffect effect, int streakSound);
+	bool BindFrameMaterial(int frame);
+	void PlayEffectSound(KillFeedbackEffect effect, int streakSound) const;
+	void ReleaseMaterial();
+
+	static const char* EffectName(KillFeedbackEffect effect);
+	static int EffectStreak(KillFeedbackEffect effect);
+
+	KillFeedbackEffect m_effect = KillFeedbackEffect::Kill1;
+	float m_animationStart = 0.0f;
+	float m_lastKillTime = -1000.0f;
+	int m_streak = 0;
+	int m_boundFrame = -1;
+	int m_textureId = -1;
+	bool m_animating = false;
+	IMaterial* m_material = nullptr;
+	struct DamageRecord {
+		KillMethod method = KillMethod::Firearm;
+		float time = 0.0f;
+	};
+	std::unordered_map<int, DamageRecord> m_infectedDamage;
+};
+
+namespace F { inline KillFeedback KillFeedbackMgr; }

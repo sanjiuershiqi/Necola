@@ -21,7 +21,7 @@ necola/dllmain.cpp
        |
        +-> sdk/: Source 接口、pattern、netvar
        +-> hook/Raw/: 原始 Hook 点
-       +-> hook/Feature/: ADS、战役计时、序列、菜单、输入、bodygroup、命令
+       +-> hook/Feature/: ADS、战役计时、击杀反馈、序列、菜单、输入、bodygroup、命令
 ```
 
 L4N 提供加载入口和生命周期回调。Necola 的主要运行逻辑自行使用 Source `CreateInterface`、
@@ -115,10 +115,10 @@ Pattern scan 用于定位非导出函数和全局指针。Pattern 失败表示�
 | 组 | Hook 点 | 用途 |
 |---|---|---|
 | BaseClient | `LevelInitPreEntity`、`LevelInitPostEntity`、`LevelShutdown`、`FrameStageNotify`、`IN_KeyEvent` | 关卡计时生命周期、帧更新、菜单按键、ADS 输入 |
-| EngineVGui | `Paint` | 战役计时材质、准星控制和菜单绘制 |
+| EngineVGui | `Paint` | 战役计时材质、击杀反馈、准星控制和菜单绘制 |
 | BaseCombatWeapon | `SendWeaponAnim`、`SetIdealActivity` | 武器动画拦截 |
 | BaseAnimating | `RecvProxySequenceViewModel`、`SelectWeightedSequence`、`FireEvent` | viewmodel 序列与动画事件 |
-| GameEventManager | `FireEventClient` | 死亡、地图等状态清理 |
+| GameEventManager | `FireEventClient` | ADS 清理、战役计时和击杀反馈事件分发 |
 
 `SequenceModify::RecvPropDataHook()` 另外替换 3 个网络属性代理：
 
@@ -195,13 +195,24 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 
 其中只有 HUD 可见性直接参与每帧准星门控；其他值主要用于一次性冲突诊断日志。
 
+### 7.1 击杀反馈
+
+`KillFeedback` 只处理本地玩家产生的 `infected_death`、`player_death` 和 `witch_killed`。普通感染者
+与特感分别受开关控制，Witch 归入特感。`infected_hurt` 仅用于保存 Witch 最近一次本地伤害的
+类型，不直接触发反馈。
+
+击杀先分类为普通枪械、爆头、近战或爆炸；启用连杀时，3 秒窗口内第二杀起改用 `2kill..6kill`
+动画，声音可递进到 `multikill_10.mp3`。视觉使用 `IMatSystemSurface` 直接绘制外部
+`overlays/cf/<effect>_<frame>` 材质，不执行 `r_screenoverlay`，也不依赖 SourceMod。动画使用
+`GlobalVars->realtime`，连杀窗口使用 `curtime`。
+
 ## 八、配置与日志
 
 | 文件/变量 | 当前实际用途 |
 |---|---|
 | `kpatch.ini` | 相对工作目录读取；先读取 `[AdsSupport] enableAdsSupport`，仓库模板没有该段 |
 | `[System] debug` | 会被解析，但不控制当前调试开关 |
-| `necola\FeatureConfig.json` | 相对工作目录读取/写入，保存 ADS、SequenceModify 和 Menu 配置 |
+| `necola\FeatureConfig.json` | 相对工作目录读取/写入，保存 ADS、SequenceModify、Menu 和 KillFeedback 配置 |
 | `NECOLA_ADS_DEBUG` | 只要环境变量存在，就启用控制台和 spdlog 详细输出 |
 | `L4N-Necola-ADS-diag.log` | 位于宿主 exe 目录；关键里程碑始终写入 |
 

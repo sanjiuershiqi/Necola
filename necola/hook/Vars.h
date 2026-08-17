@@ -50,6 +50,19 @@ public:
     int menuAnchor = 0;       // 0=left, 1=center, 2=right
     int menuOpacity = 220;    // background alpha, clamped to 160..245
 
+    // External CF-style kill feedback.
+    bool killFeedbackEnabled = false;
+    bool killFeedbackCommon = true;
+    bool killFeedbackSpecial = true;
+    bool killFeedbackVisual = true;
+    bool killFeedbackSound = true;
+    bool killFeedbackFirearm = true;
+    bool killFeedbackHeadshot = true;
+    bool killFeedbackMelee = true;
+    bool killFeedbackExplosion = true;
+    bool killFeedbackMultiKill = true;
+    float killFeedbackWindow = 3.0f;
+
 	void Load();
 };
 

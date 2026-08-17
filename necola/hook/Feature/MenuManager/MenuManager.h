@@ -13,6 +13,7 @@
 #include <spdlog/spdlog.h>
 
 #include "../AdsSupport/AdsSupport.h"
+#include "../KillFeedback/KillFeedback.h"
 #include "../../../sdk/utils/FeatureConfigManager.h"
 
 
@@ -628,6 +629,53 @@ public:
 			}
 		}
 
+		auto killFeedbackMenu = rootMenu->addSubMenu("击杀反馈 [关]", "kill_feedback", "击杀反馈");
+		registerMenu(killFeedbackMenu);
+		if (killFeedbackMenu) {
+			auto addKillSwitch = [this](const std::shared_ptr<MenuNode>& menu, const char* label,
+				bool* setting, bool stopWhenDisabled) {
+				menu->addSwitch(label, *setting, [this, setting, stopWhenDisabled](bool state) {
+					*setting = state;
+					if (!state && stopWhenDisabled) {
+						if (setting == &G::Vars.killFeedbackEnabled) F::KillFeedbackMgr.Reset();
+						else F::KillFeedbackMgr.Stop();
+					}
+					F::KillFeedbackMgr.SaveConfig();
+					RefreshRootLabels();
+				});
+			};
+
+			addKillSwitch(killFeedbackMenu, "启用击杀反馈", &G::Vars.killFeedbackEnabled, true);
+			addKillSwitch(killFeedbackMenu, "普通感染者", &G::Vars.killFeedbackCommon, false);
+			addKillSwitch(killFeedbackMenu, "特殊感染者（含Witch）", &G::Vars.killFeedbackSpecial, false);
+			addKillSwitch(killFeedbackMenu, "视觉动画", &G::Vars.killFeedbackVisual, true);
+			addKillSwitch(killFeedbackMenu, "击杀音效", &G::Vars.killFeedbackSound, false);
+
+			auto methodMenu = killFeedbackMenu->addSubMenu("击杀方式", "kill_feedback_methods", "击杀方式");
+			registerMenu(methodMenu);
+			if (methodMenu) {
+				addKillSwitch(methodMenu, "普通枪械", &G::Vars.killFeedbackFirearm, false);
+				addKillSwitch(methodMenu, "爆头", &G::Vars.killFeedbackHeadshot, false);
+				addKillSwitch(methodMenu, "近战", &G::Vars.killFeedbackMelee, false);
+				addKillSwitch(methodMenu, "爆炸", &G::Vars.killFeedbackExplosion, false);
+				addKillSwitch(methodMenu, "连杀效果", &G::Vars.killFeedbackMultiKill, false);
+			}
+
+			auto previewMenu = killFeedbackMenu->addSubMenu("测试效果", "kill_feedback_preview", "测试效果");
+			registerMenu(previewMenu);
+			if (previewMenu) {
+				previewMenu->addOption("普通击杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill1); });
+				previewMenu->addOption("二连杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill2); });
+				previewMenu->addOption("三连杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill3); });
+				previewMenu->addOption("四连杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill4); });
+				previewMenu->addOption("五连杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill5); });
+				previewMenu->addOption("六连杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill6); });
+				previewMenu->addOption("爆头击杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Headshot); });
+				previewMenu->addOption("近战击杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Melee); });
+				previewMenu->addOption("爆炸击杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Explosion); });
+			}
+		}
+
 		auto toolsMenu = rootMenu->addSubMenu("诊断与工具", "tools", "诊断与工具");
 		registerMenu(toolsMenu);
 		if (toolsMenu) {
@@ -692,6 +740,8 @@ public:
 			(G::Vars.enableAdsSupport ? "开]" : "关]"));
 		rootMenu->updateSubMenuItemName("seq", std::string("序列修正 [") +
 			(G::Vars.animSequenceModify ? "开]" : "关]"));
+		rootMenu->updateSubMenuItemName("kill_feedback", std::string("击杀反馈 [") +
+			(G::Vars.killFeedbackEnabled ? "开]" : "关]"));
 	}
 
 	void RefreshCrosshairModeUI() {

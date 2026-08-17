@@ -7,6 +7,7 @@
 #include "../../Feature/MenuManager/MenuManager.h"
 #include "../../Feature/AdsSupport/AdsSupport.h"
 #include "../../Feature/CampaignTimer/CampaignTimer.h"
+#include "../../Feature/KillFeedback/KillFeedback.h"
 
 using namespace Hooks;
 
@@ -89,6 +90,8 @@ void __fastcall EngineVGui::Paint::Detour(void* ecx, void* edx, int mode)
 			}
 			XHair().hidden = false;
 		}
+
+		if (L4N::Env.HudVisible()) F::KillFeedbackMgr.Draw();
 
 		// In-game menu drawing
 		if (F::MenuMgr.IsVisible() && I::MatSystemSurface) {

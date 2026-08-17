@@ -3,6 +3,7 @@
 #include "../../Feature/AdsSupport/AdsSupport.h"
 #include "../../Feature/BodygroupFix/BodygroupFix.h"
 #include "../../Feature/CampaignTimer/CampaignTimer.h"
+#include "../../Feature/KillFeedback/KillFeedback.h"
 
 #include <spdlog/spdlog.h>
 
@@ -32,6 +33,7 @@ void __fastcall BaseClient::LevelInitPostEntity::Detour(void* ecx, void* edx)
 void __fastcall BaseClient::LevelShutdown::Detour(void* ecx, void* edx)
 {
 	F::CampaignTimerMgr.OnLevelShutdown();
+	F::KillFeedbackMgr.Reset();
 	Table.Original<FN>(Index)(ecx, edx);
 }
 

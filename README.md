@@ -99,6 +99,7 @@ just install   # 先修改 justfile 的硬编码 TARGET;当前默认值不是官
    - "诊断与工具" 可切换 ADS/序列日志或立即退出 ADS 状态；"菜单外观" 可保存左/中/右位置和背景透明度。
    - 绑定按键到 `necola_ads` / `necola_ads_mixed` / `necola_ads_foreceback` / `necola_ads_back` 控制开镜状态。
    - 配套修改版 `cs2hud444` 可显示跨小关累计的战役时间，安装方式见 [战役计时器说明](docs/CAMPAIGN_TIMER.md)。
+   - 外部 CF 素材包可由 Necola 驱动枪械、爆头、近战、爆炸和连杀反馈，安装方式见 [击杀反馈说明](docs/KILL_FEEDBACK.md)。
 
 ### ADS 控制台命令
 
