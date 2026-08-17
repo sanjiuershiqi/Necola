@@ -150,22 +150,15 @@ void InGameMenu::InitConfigSwitches() {
 	}
 	auto killMethodMenu = FindMenuById("kill_feedback_methods");
 	if (killMethodMenu) {
-		killMethodMenu->setSwitchStateByName("普通枪械", G::Vars.killFeedbackFirearm);
-		killMethodMenu->setSwitchStateByName("爆头", G::Vars.killFeedbackHeadshot);
-		killMethodMenu->setSwitchStateByName("近战", G::Vars.killFeedbackMelee);
-		killMethodMenu->setSwitchStateByName("爆炸", G::Vars.killFeedbackExplosion);
-		killMethodMenu->setSwitchStateByName("连杀效果", G::Vars.killFeedbackMultiKill);
+		for (const auto& [label, setting] : KillFeedbackMethodSwitches()) {
+			killMethodMenu->setSwitchStateByName(label, *setting);
+		}
 	}
 	auto killSpecialMenu = FindMenuById("kill_feedback_specials");
 	if (killSpecialMenu) {
-		killSpecialMenu->setSwitchStateByName("Smoker", G::Vars.killFeedbackSmoker);
-		killSpecialMenu->setSwitchStateByName("Boomer", G::Vars.killFeedbackBoomer);
-		killSpecialMenu->setSwitchStateByName("Hunter", G::Vars.killFeedbackHunter);
-		killSpecialMenu->setSwitchStateByName("Spitter", G::Vars.killFeedbackSpitter);
-		killSpecialMenu->setSwitchStateByName("Jockey", G::Vars.killFeedbackJockey);
-		killSpecialMenu->setSwitchStateByName("Charger", G::Vars.killFeedbackCharger);
-		killSpecialMenu->setSwitchStateByName("Tank", G::Vars.killFeedbackTank);
-		killSpecialMenu->setSwitchStateByName("Witch", G::Vars.killFeedbackWitch);
+		for (const auto& [label, setting] : KillFeedbackSpecialSwitches()) {
+			killSpecialMenu->setSwitchStateByName(label, *setting);
+		}
 	}
 	RefreshRootLabels();
 	RefreshCrosshairModeUI();

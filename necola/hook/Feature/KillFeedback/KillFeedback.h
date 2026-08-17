@@ -61,8 +61,6 @@ private:
 	KillMethod ClassifyTrackedDamage(IGameEvent* event) const;
 	bool IsMethodEnabled(KillMethod method) const;
 	bool IsWitchEntity(int entityId) const;
-	bool IsActiveWeaponMelee() const;
-	bool IsActiveWeaponExplosion() const;
 	void Trigger(KillMethod method);
 	void StartEffect(KillFeedbackEffect effect, int streakSound);
 	bool BindFrameTexture(int frame);

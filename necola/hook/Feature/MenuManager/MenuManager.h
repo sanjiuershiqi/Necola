@@ -8,7 +8,9 @@
 #include <stack>
 #include <cmath>
 #include <algorithm>
+#include <array>
 #include <unordered_map>
+#include <utility>
 
 #include <spdlog/spdlog.h>
 
@@ -654,38 +656,32 @@ public:
 			auto specialMenu = killFeedbackMenu->addSubMenu("特感分类设置", "kill_feedback_specials", "特感分类设置");
 			registerMenu(specialMenu);
 			if (specialMenu) {
-				addKillSwitch(specialMenu, "Smoker", &G::Vars.killFeedbackSmoker, false);
-				addKillSwitch(specialMenu, "Boomer", &G::Vars.killFeedbackBoomer, false);
-				addKillSwitch(specialMenu, "Hunter", &G::Vars.killFeedbackHunter, false);
-				addKillSwitch(specialMenu, "Spitter", &G::Vars.killFeedbackSpitter, false);
-				addKillSwitch(specialMenu, "Jockey", &G::Vars.killFeedbackJockey, false);
-				addKillSwitch(specialMenu, "Charger", &G::Vars.killFeedbackCharger, false);
-				addKillSwitch(specialMenu, "Tank", &G::Vars.killFeedbackTank, false);
-				addKillSwitch(specialMenu, "Witch", &G::Vars.killFeedbackWitch, false);
+				for (const auto& [label, setting] : KillFeedbackSpecialSwitches()) {
+					addKillSwitch(specialMenu, label, setting, false);
+				}
 			}
 
 			auto methodMenu = killFeedbackMenu->addSubMenu("击杀方式", "kill_feedback_methods", "击杀方式");
 			registerMenu(methodMenu);
 			if (methodMenu) {
-				addKillSwitch(methodMenu, "普通枪械", &G::Vars.killFeedbackFirearm, false);
-				addKillSwitch(methodMenu, "爆头", &G::Vars.killFeedbackHeadshot, false);
-				addKillSwitch(methodMenu, "近战", &G::Vars.killFeedbackMelee, false);
-				addKillSwitch(methodMenu, "爆炸", &G::Vars.killFeedbackExplosion, false);
-				addKillSwitch(methodMenu, "连杀效果", &G::Vars.killFeedbackMultiKill, false);
+				for (const auto& [label, setting] : KillFeedbackMethodSwitches()) {
+					addKillSwitch(methodMenu, label, setting, false);
+				}
 			}
 
 			auto previewMenu = killFeedbackMenu->addSubMenu("测试效果", "kill_feedback_preview", "测试效果");
 			registerMenu(previewMenu);
 			if (previewMenu) {
-				previewMenu->addOption("普通击杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill1); });
-				previewMenu->addOption("二连杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill2); });
-				previewMenu->addOption("三连杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill3); });
-				previewMenu->addOption("四连杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill4); });
-				previewMenu->addOption("五连杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill5); });
-				previewMenu->addOption("六连杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill6); });
-				previewMenu->addOption("爆头击杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Headshot); });
-				previewMenu->addOption("近战击杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Melee); });
-				previewMenu->addOption("爆炸击杀", []() { F::KillFeedbackMgr.Preview(KillFeedbackEffect::Explosion); });
+				const std::pair<const char*, KillFeedbackEffect> previews[] = {
+					{"普通击杀", KillFeedbackEffect::Kill1}, {"二连杀", KillFeedbackEffect::Kill2},
+					{"三连杀", KillFeedbackEffect::Kill3}, {"四连杀", KillFeedbackEffect::Kill4},
+					{"五连杀", KillFeedbackEffect::Kill5}, {"六连杀", KillFeedbackEffect::Kill6},
+					{"爆头击杀", KillFeedbackEffect::Headshot}, {"近战击杀", KillFeedbackEffect::Melee},
+					{"爆炸击杀", KillFeedbackEffect::Explosion},
+				};
+				for (const auto& [label, effect] : previews) {
+					previewMenu->addOption(label, [effect]() { F::KillFeedbackMgr.Preview(effect); });
+				}
 			}
 		}
 
@@ -1054,6 +1050,24 @@ public:
 	void InitMenuFonts();
 
 	private:
+		struct KillFeedbackSwitchBinding {
+			const char* label;
+			bool* setting;
+		};
+
+		static std::array<KillFeedbackSwitchBinding, 8> KillFeedbackSpecialSwitches() {
+			return {{{"Smoker", &G::Vars.killFeedbackSmoker}, {"Boomer", &G::Vars.killFeedbackBoomer},
+				{"Hunter", &G::Vars.killFeedbackHunter}, {"Spitter", &G::Vars.killFeedbackSpitter},
+				{"Jockey", &G::Vars.killFeedbackJockey}, {"Charger", &G::Vars.killFeedbackCharger},
+				{"Tank", &G::Vars.killFeedbackTank}, {"Witch", &G::Vars.killFeedbackWitch}}};
+		}
+
+		static std::array<KillFeedbackSwitchBinding, 5> KillFeedbackMethodSwitches() {
+			return {{{"普通枪械", &G::Vars.killFeedbackFirearm}, {"爆头", &G::Vars.killFeedbackHeadshot},
+				{"近战", &G::Vars.killFeedbackMelee}, {"爆炸", &G::Vars.killFeedbackExplosion},
+				{"连杀效果", &G::Vars.killFeedbackMultiKill}}};
+		}
+
 		void UpdatePosition() {
 			const int margin = 16;
 			if (G::Vars.menuAnchor == 1) {

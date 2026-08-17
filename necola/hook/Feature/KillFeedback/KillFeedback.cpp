@@ -5,6 +5,7 @@
 #include "../../Vars.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -36,6 +37,46 @@ bool IsExplosionWeaponId(int weaponId) {
 	return weaponId == WEAPON_PIPEBOMB || weaponId == WEAPON_PROPANE_TANK ||
 		weaponId == WEAPON_OXYGEN_TANK || weaponId == WEAPON_GRENADE_LAUNCHER ||
 		weaponId == WEAPON_FIREWORK;
+}
+
+int LocalActiveWeaponId() {
+	if (!I::EngineClient || !I::ClientEntityList) return -1;
+	auto* entity = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer());
+	auto* local = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
+	auto* weaponEntity = local && !local->deadflag() ? local->GetActiveWeapon() : nullptr;
+	auto* weapon = weaponEntity ? weaponEntity->As<C_TerrorWeapon*>() : nullptr;
+	return weapon ? weapon->GetWeaponID() : -1;
+}
+
+struct BoolConfigBinding {
+	const char* key;
+	bool* value;
+	bool defaultValue;
+};
+
+const std::array<BoolConfigBinding, 19>& KillFeedbackBoolConfig() {
+	static const std::array<BoolConfigBinding, 19> bindings{{
+		{"Enabled", &G::Vars.killFeedbackEnabled, false},
+		{"LogEnabled", &G::Vars.killFeedbackLog, true},
+		{"CommonEnabled", &G::Vars.killFeedbackCommon, true},
+		{"SpecialEnabled", &G::Vars.killFeedbackSpecial, true},
+		{"SmokerEnabled", &G::Vars.killFeedbackSmoker, true},
+		{"BoomerEnabled", &G::Vars.killFeedbackBoomer, true},
+		{"HunterEnabled", &G::Vars.killFeedbackHunter, true},
+		{"SpitterEnabled", &G::Vars.killFeedbackSpitter, true},
+		{"JockeyEnabled", &G::Vars.killFeedbackJockey, true},
+		{"ChargerEnabled", &G::Vars.killFeedbackCharger, true},
+		{"TankEnabled", &G::Vars.killFeedbackTank, true},
+		{"WitchEnabled", &G::Vars.killFeedbackWitch, true},
+		{"VisualEnabled", &G::Vars.killFeedbackVisual, true},
+		{"SoundEnabled", &G::Vars.killFeedbackSound, true},
+		{"FirearmEnabled", &G::Vars.killFeedbackFirearm, true},
+		{"HeadshotEnabled", &G::Vars.killFeedbackHeadshot, true},
+		{"MeleeEnabled", &G::Vars.killFeedbackMelee, true},
+		{"ExplosionEnabled", &G::Vars.killFeedbackExplosion, true},
+		{"MultiKillEnabled", &G::Vars.killFeedbackMultiKill, true},
+	}};
+	return bindings;
 }
 
 std::string KillFeedbackLogPath() {
@@ -79,29 +120,11 @@ void KillFeedback::LoadConfig(const nlohmann::json& doc) {
 	const auto section = doc.find("KillFeedback");
 	if (section == doc.end() || !section->is_object()) return;
 
-	auto readBool = [section](const char* key, bool fallback) {
-		const auto value = section->find(key);
-		return value != section->end() && value->is_boolean() ? value->get<bool>() : fallback;
-	};
-	G::Vars.killFeedbackEnabled = readBool("Enabled", false);
-	G::Vars.killFeedbackLog = readBool("LogEnabled", true);
-	G::Vars.killFeedbackCommon = readBool("CommonEnabled", true);
-	G::Vars.killFeedbackSpecial = readBool("SpecialEnabled", true);
-	G::Vars.killFeedbackSmoker = readBool("SmokerEnabled", true);
-	G::Vars.killFeedbackBoomer = readBool("BoomerEnabled", true);
-	G::Vars.killFeedbackHunter = readBool("HunterEnabled", true);
-	G::Vars.killFeedbackSpitter = readBool("SpitterEnabled", true);
-	G::Vars.killFeedbackJockey = readBool("JockeyEnabled", true);
-	G::Vars.killFeedbackCharger = readBool("ChargerEnabled", true);
-	G::Vars.killFeedbackTank = readBool("TankEnabled", true);
-	G::Vars.killFeedbackWitch = readBool("WitchEnabled", true);
-	G::Vars.killFeedbackVisual = readBool("VisualEnabled", true);
-	G::Vars.killFeedbackSound = readBool("SoundEnabled", true);
-	G::Vars.killFeedbackFirearm = readBool("FirearmEnabled", true);
-	G::Vars.killFeedbackHeadshot = readBool("HeadshotEnabled", true);
-	G::Vars.killFeedbackMelee = readBool("MeleeEnabled", true);
-	G::Vars.killFeedbackExplosion = readBool("ExplosionEnabled", true);
-	G::Vars.killFeedbackMultiKill = readBool("MultiKillEnabled", true);
+	for (const auto& binding : KillFeedbackBoolConfig()) {
+		const auto value = section->find(binding.key);
+		*binding.value = value != section->end() && value->is_boolean()
+			? value->get<bool>() : binding.defaultValue;
+	}
 
 	const auto window = section->find("MultiKillWindow");
 	if (window != section->end() && window->is_number()) {
@@ -119,25 +142,7 @@ void KillFeedback::LoadConfig(const nlohmann::json& doc) {
 
 void KillFeedback::SaveConfig(nlohmann::json& doc) const {
 	auto& section = NecolaConfig::EnsureSectionObject(doc, "KillFeedback");
-	section["Enabled"] = G::Vars.killFeedbackEnabled;
-	section["LogEnabled"] = G::Vars.killFeedbackLog;
-	section["CommonEnabled"] = G::Vars.killFeedbackCommon;
-	section["SpecialEnabled"] = G::Vars.killFeedbackSpecial;
-	section["SmokerEnabled"] = G::Vars.killFeedbackSmoker;
-	section["BoomerEnabled"] = G::Vars.killFeedbackBoomer;
-	section["HunterEnabled"] = G::Vars.killFeedbackHunter;
-	section["SpitterEnabled"] = G::Vars.killFeedbackSpitter;
-	section["JockeyEnabled"] = G::Vars.killFeedbackJockey;
-	section["ChargerEnabled"] = G::Vars.killFeedbackCharger;
-	section["TankEnabled"] = G::Vars.killFeedbackTank;
-	section["WitchEnabled"] = G::Vars.killFeedbackWitch;
-	section["VisualEnabled"] = G::Vars.killFeedbackVisual;
-	section["SoundEnabled"] = G::Vars.killFeedbackSound;
-	section["FirearmEnabled"] = G::Vars.killFeedbackFirearm;
-	section["HeadshotEnabled"] = G::Vars.killFeedbackHeadshot;
-	section["MeleeEnabled"] = G::Vars.killFeedbackMelee;
-	section["ExplosionEnabled"] = G::Vars.killFeedbackExplosion;
-	section["MultiKillEnabled"] = G::Vars.killFeedbackMultiKill;
+	for (const auto& binding : KillFeedbackBoolConfig()) section[binding.key] = *binding.value;
 	section["MultiKillWindow"] = G::Vars.killFeedbackWindow;
 }
 
@@ -202,26 +207,6 @@ bool KillFeedback::IsSpecialVictimEnabled(SpecialVictim victim) const {
 	}
 }
 
-bool KillFeedback::IsActiveWeaponMelee() const {
-	if (!I::EngineClient || !I::ClientEntityList) return false;
-	auto* entity = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer());
-	auto* local = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
-	auto* weaponEntity = local && !local->deadflag() ? local->GetActiveWeapon() : nullptr;
-	auto* weapon = weaponEntity ? weaponEntity->As<C_TerrorWeapon*>() : nullptr;
-	if (!weapon) return false;
-	const int weaponId = weapon->GetWeaponID();
-	return weaponId == WEAPON_MELEE || weaponId == WEAPON_CHAINSAW;
-}
-
-bool KillFeedback::IsActiveWeaponExplosion() const {
-	if (!I::EngineClient || !I::ClientEntityList) return false;
-	auto* entity = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer());
-	auto* local = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
-	auto* weaponEntity = local && !local->deadflag() ? local->GetActiveWeapon() : nullptr;
-	auto* weapon = weaponEntity ? weaponEntity->As<C_TerrorWeapon*>() : nullptr;
-	return weapon && IsExplosionWeaponId(weapon->GetWeaponID());
-}
-
 KillFeedback::KillMethod KillFeedback::ClassifyCommonKill(IGameEvent* event) const {
 	const int weaponId = event->GetInt("weapon_id", 0);
 	if (event->GetBool("blast", false) || IsExplosionWeaponId(weaponId)) {
@@ -229,7 +214,10 @@ KillFeedback::KillMethod KillFeedback::ClassifyCommonKill(IGameEvent* event) con
 	}
 	if (weaponId == WEAPON_MELEE || weaponId == WEAPON_CHAINSAW) return KillMethod::Melee;
 	if (event->GetBool("headshot", false)) return KillMethod::Headshot;
-	if (weaponId == 0 && IsActiveWeaponMelee()) return KillMethod::Melee;
+	if (weaponId == 0) {
+		const int activeWeaponId = LocalActiveWeaponId();
+		if (activeWeaponId == WEAPON_MELEE || activeWeaponId == WEAPON_CHAINSAW) return KillMethod::Melee;
+	}
 	return KillMethod::Firearm;
 }
 
@@ -248,8 +236,9 @@ KillFeedback::KillMethod KillFeedback::ClassifySpecialKill(IGameEvent* event) co
 		return KillMethod::Headshot;
 	}
 	if (!weapon || weapon[0] == '\0') {
-		if (IsActiveWeaponExplosion()) return KillMethod::Explosion;
-		if (IsActiveWeaponMelee()) return KillMethod::Melee;
+		const int activeWeaponId = LocalActiveWeaponId();
+		if (IsExplosionWeaponId(activeWeaponId)) return KillMethod::Explosion;
+		if (activeWeaponId == WEAPON_MELEE || activeWeaponId == WEAPON_CHAINSAW) return KillMethod::Melee;
 	}
 	return KillMethod::Firearm;
 }
