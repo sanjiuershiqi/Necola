@@ -311,6 +311,14 @@ static bool RunLoadBody()
 		}, "test Necola kill feedback assets");
 	}
 	ELog("Step 10 done");
+
+	// Register kill feedback event listener via the official AddListener API
+	// (works on both listen and dedicated servers, unlike vtable hooks).
+	ELog("Step 11: KillFeedback listeners");
+	if (!F::KillFeedbackMgr.InitListeners()) {
+		ELog("WARN: one or more kill feedback event listeners failed to register");
+	}
+	ELog("Step 11 done");
 	return true;
 }
 

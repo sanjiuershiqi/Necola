@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../../sdk/SDK.h"
+#include "../../../sdk/l4d2/entities/IGameEventListener2.h"
 
 #include <cstdint>
 #include <string>
@@ -18,12 +19,19 @@ enum class KillFeedbackEffect {
 	Explosion,
 };
 
+class KillFeedbackListener final : public IGameEventListener2 {
+public:
+	void FireGameEvent(IGameEvent* event) override;
+	int GetEventDebugID() override { return 42; }
+};
+
 class KillFeedback {
 public:
 	void LoadConfig(const nlohmann::json& doc);
 	void SaveConfig(nlohmann::json& doc) const;
 	void SaveConfig() const;
 
+	bool InitListeners();
 	void OnGameEvent(IGameEvent* event);
 	void RefreshSpecialVictims();
 	void Draw();
@@ -103,6 +111,8 @@ private:
 	std::unordered_map<int, PlayerDamageRecord> m_playerDamage;
 	std::unordered_map<int, PendingSpecialKill> m_pendingSpecialKills;
 	std::unordered_map<int, SpecialVictim> m_specialVictims;
+	KillFeedbackListener m_listener;
+	bool m_listenersRegistered = false;
 	int m_lastSpecialVictimUserId = 0;
 	float m_lastSpecialKillTime = -1000.0f;
 	int m_lastCommonEntityId = 0;

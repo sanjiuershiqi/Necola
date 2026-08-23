@@ -2,14 +2,8 @@
 
 #include "../../Feature/AdsSupport/AdsSupport.h"
 #include "../../Feature/CampaignTimer/CampaignTimer.h"
-#include "../../Feature/KillFeedback/KillFeedback.h"
 
 using namespace Hooks;
-
-bool __fastcall GameEventManager::FireEvent::Detour(void* ecx, void* edx, IGameEvent* event, bool bDontBroadcast) {
-	if (event) F::KillFeedbackMgr.OnGameEvent(event);
-	return Table.Original<FN>(Index)(ecx, edx, event, bDontBroadcast);
-}
 
 bool __fastcall GameEventManager::FireEventClient::Detour(void* ecx, void* edx,  IGameEvent *event) {
 	const char *name = event->GetName();
@@ -72,8 +66,6 @@ bool __fastcall GameEventManager::FireEventClient::Detour(void* ecx, void* edx, 
 
 bool GameEventManager::Init()
 {
-	if (!Table.Init(I::GameEventManager, FireEventClient::Index + 1)) return false;
-	bool ok = Table.Hook(&FireEvent::Detour, FireEvent::Index);
-	ok = Table.Hook(&FireEventClient::Detour, FireEventClient::Index) && ok;
-	return ok;
+	return Table.Init(I::GameEventManager, FireEventClient::Index + 1)
+		&& Table.Hook(&FireEventClient::Detour, FireEventClient::Index);
 }

@@ -760,7 +760,40 @@ void KillFeedback::Reset() {
 	m_lastVictimRefresh = -1000.0f;
 }
 
+void KillFeedbackListener::FireGameEvent(IGameEvent* event) {
+	F::KillFeedbackMgr.OnGameEvent(event);
+}
+
+bool KillFeedback::InitListeners() {
+	if (!I::GameEventManager) {
+		KFLog("listener init skipped: GameEventManager unavailable");
+		return false;
+	}
+	static const char* const kEvents[] = {
+		"round_start", "mission_lost", "map_transition",
+		"player_spawn", "ability_use", "tank_spawn",
+		"player_hurt", "player_death",
+		"infected_hurt", "infected_death", "melee_kill",
+		"witch_spawn", "witch_killed",
+		"boomer_exploded", "charger_killed", "spitter_killed",
+		"jockey_killed", "tank_killed",
+	};
+	bool allOk = true;
+	for (const char* name : kEvents) {
+		const bool added = I::GameEventManager->AddListener(&m_listener, name, false);
+		KFLog("listener %s=%d", name, added ? 1 : 0);
+		allOk = allOk && added;
+	}
+	m_listenersRegistered = true;
+	KFLog("listener registration complete allOk=%d", allOk);
+	return allOk;
+}
+
 void KillFeedback::Shutdown() {
+	if (m_listenersRegistered && I::GameEventManager) {
+		I::GameEventManager->RemoveListener(&m_listener);
+		m_listenersRegistered = false;
+	}
 	KFLog("shutdown");
 	Reset();
 }

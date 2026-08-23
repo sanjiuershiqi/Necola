@@ -110,7 +110,7 @@ Pattern scan 用于定位非导出函数和全局指针。Pattern 失败表示�
 
 ## 四、Hook 拓扑
 
-`G::Hooks.Init()` 注册 5 个 Raw hook 组，实际包含 13 个 MinHook detour：
+`G::Hooks.Init()` 注册 5 个 Raw hook 组，实际包含 12 个 MinHook detour：
 
 | 组 | Hook 点 | 用途 |
 |---|---|---|
@@ -118,7 +118,7 @@ Pattern scan 用于定位非导出函数和全局指针。Pattern 失败表示�
 | EngineVGui | `Paint` | 战役计时材质、击杀反馈、准星控制和菜单绘制 |
 | BaseCombatWeapon | `SendWeaponAnim`、`SetIdealActivity` | 武器动画拦截 |
 | BaseAnimating | `RecvProxySequenceViewModel`、`SelectWeightedSequence`、`FireEvent` | viewmodel 序列与动画事件 |
-| GameEventManager | `FireEvent`、`FireEventClient` | ADS 清理、战役计时和客户端/服务器击杀事件分发 |
+| GameEventManager | `FireEventClient` | ADS 清理与战役计时事件；击杀反馈改用官方 AddListener 监听 |
 
 `SequenceModify::RecvPropDataHook()` 另外替换 3 个网络属性代理：
 
@@ -129,7 +129,7 @@ Pattern scan 用于定位非导出函数和全局指针。Pattern 失败表示�
 这些 proxy 不属于 MinHook。`m_dwRecvProxySequence` 虽然会被 pattern 定位，但当前没有安装为
 detour，文档和排障时不要把它列为已启用 Hook。
 
-当前 Hook 初始化检查 MinHook 初始化、13 个 Hook 创建及统一启用结果。`CTable` 使用调用方给出的
+当前 Hook 初始化检查 MinHook 初始化、12 个 Hook 创建及统一启用结果。`CTable` 使用调用方给出的
 最小表大小，不再扫描未知长度虚表；任一步失败都会禁用并反初始化 MinHook。
 
 ## 五、ADS 状态与数据流
@@ -197,11 +197,15 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 
 ### 7.1 击杀反馈
 
-`KillFeedback` 从服务器 `FireEvent` 通道处理本地玩家产生的 `infected_death`、`player_death` 和
-`witch_killed`，不再与 `FireEventClient` 混用。普通感染者
+`KillFeedback` 通过官方 `IGameEventManager2::AddListener(listener, name, false)` 注册 18 个事件，
+由 `IGameEventListener2` 派发到统一状态机。该通道在本地服务器和远程独立服务器上都有效；此前使用的
+`FireEvent` 虚表 Hook 只在本地进程内触发，连服时收不到事件。覆盖事件包括 `infected_death`、
+`player_death`、`witch_killed`、各特感专用死亡事件、`player_hurt`、`infected_hurt`、`melee_kill`
+和身份缓存来源（spawn/ability/tank_spawn）。普通感染者
 与特感分别受总开关控制，Smoker、Boomer、Hunter、Spitter、Jockey、Charger、Tank 和 Witch 另有
-独立开关。玩家型特感优先从死亡实体的 `m_zombieClass` 识别，实体不可用时回退 `victimname`。
-`infected_hurt` 仅用于保存 Witch 最近一次本地伤害的类型，不直接触发反馈。
+独立开关。玩家型特感优先从死亡实体的 `m_zombieClass` 识别，实体不可用时回退 userid 缓存与
+`victimname`。仅本地网络的事件（如 `infected_hurt`）在远程服务器上不会到达，此时 Witch 击杀方式
+退化为 `witch_killed.melee_only` 与死亡事件字段推断。
 
 击杀先分类为普通枪械、爆头、近战或爆炸；只有枪械和爆头参与连杀，3 秒窗口内第二杀起改用
 `2kill..6kill` 动画，声音可递进到 `multikill_10.mp3`。近战和爆炸始终显示专用效果，且不改变
