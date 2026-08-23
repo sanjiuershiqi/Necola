@@ -179,16 +179,20 @@ void KillFeedback::LoadThemes() {
 				theme.streakWrap = wrap != streak->end() && wrap->is_number_integer()
 					? wrap->get<int>() : 0;
 			}
-			loadStyle(doc.find("hit").value_or(nlohmann::json{}), theme.hit);
-			loadStyle(doc.find("kill").value_or(nlohmann::json{}), theme.kill);
-			loadStyle(doc.find("headshot").value_or(nlohmann::json{}), theme.headshot);
-			loadStyle(doc.find("melee").value_or(nlohmann::json{}), theme.melee);
+			auto loadStyleFrom = [&](const char* key, KillStyle& style) {
+				const auto it = doc.find(key);
+				if (it != doc.end() && it->is_object()) loadStyle(*it, style);
+			};
+			loadStyleFrom("hit", theme.hit);
+			loadStyleFrom("kill", theme.kill);
+			loadStyleFrom("headshot", theme.headshot);
+			loadStyleFrom("melee", theme.melee);
 			for (int i = 1; i <= 10; ++i) {
 				char key[16] = {};
 				_snprintf_s(key, sizeof(key), _TRUNCATE, "streak_%d", i);
-				loadStyle(doc.find(key).value_or(nlohmann::json{}), theme.streak[i]);
+				loadStyleFrom(key, theme.streak[i]);
 			}
-			loadStyle(doc.find("streak_default").value_or(nlohmann::json{}), theme.streakDefault);
+			loadStyleFrom("streak_default", theme.streakDefault);
 
 			// The stock SI themes share the ow overlay because the original
 			// renders streak numbers via particles. Particles are not used
@@ -904,7 +908,7 @@ void KillFeedback::LoadConfig(const nlohmann::json& doc) {
 	if (window != section->end() && window->is_number()) {
 		try {
 			G::Vars.killFeedbackWindow = std::clamp(
-				window->get<float>(), MIN_STREAK_WINDOW, MAX_STREAK_WINDOW);
+				window->get<float>(), 0.5f, 10.0f);
 		} catch (...) {}
 	}
 	KFLog("config loaded si=%s ci=%s", m_siTheme.c_str(), m_ciTheme.c_str());
