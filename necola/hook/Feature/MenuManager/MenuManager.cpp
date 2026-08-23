@@ -160,6 +160,13 @@ void InGameMenu::InitConfigSwitches() {
 			killSpecialMenu->setSwitchStateByName(label, *setting);
 		}
 	}
+	auto hitFeedbackMenu = FindMenuById("hit_feedback");
+	if (hitFeedbackMenu) {
+		hitFeedbackMenu->setSwitchStateByName("启用命中反馈", G::Vars.hitFeedbackEnabled);
+		hitFeedbackMenu->setSwitchStateByName("伤害数字", G::Vars.hitFeedbackNumbers);
+		hitFeedbackMenu->setSwitchStateByName("命中标记", G::Vars.hitFeedbackHitMarker);
+		hitFeedbackMenu->setSwitchStateByName("普通感染者也显示", G::Vars.hitFeedbackCommon);
+	}
 	RefreshRootLabels();
 	RefreshCrosshairModeUI();
 	RefreshAppearanceLabels();

@@ -16,6 +16,7 @@
 
 #include "../AdsSupport/AdsSupport.h"
 #include "../KillFeedback/KillFeedback.h"
+#include "../HitFeedback/HitFeedback.h"
 #include "../../../sdk/utils/FeatureConfigManager.h"
 
 
@@ -685,6 +686,23 @@ public:
 			}
 		}
 
+		auto hitFeedbackMenu = rootMenu->addSubMenu("命中反馈 [关]", "hit_feedback", "命中反馈");
+		registerMenu(hitFeedbackMenu);
+		if (hitFeedbackMenu) {
+			auto addHitSwitch = [](const std::shared_ptr<MenuNode>& menu, const char* label,
+				bool* setting) {
+				menu->addSwitch(label, *setting, [setting](bool state) {
+					*setting = state;
+					F::HitFeedbackMgr.SaveConfig();
+					F::MenuMgr.RefreshRootLabels();
+				});
+			};
+			addHitSwitch(hitFeedbackMenu, "启用命中反馈", &G::Vars.hitFeedbackEnabled);
+			addHitSwitch(hitFeedbackMenu, "伤害数字", &G::Vars.hitFeedbackNumbers);
+			addHitSwitch(hitFeedbackMenu, "命中标记", &G::Vars.hitFeedbackHitMarker);
+			addHitSwitch(hitFeedbackMenu, "普通感染者也显示", &G::Vars.hitFeedbackCommon);
+		}
+
 		auto toolsMenu = rootMenu->addSubMenu("诊断与工具", "tools", "诊断与工具");
 		registerMenu(toolsMenu);
 		if (toolsMenu) {
@@ -755,6 +773,8 @@ public:
 			(G::Vars.animSequenceModify ? "开]" : "关]"));
 		rootMenu->updateSubMenuItemName("kill_feedback", std::string("击杀反馈 [") +
 			(G::Vars.killFeedbackEnabled ? "开]" : "关]"));
+		rootMenu->updateSubMenuItemName("hit_feedback", std::string("命中反馈 [") +
+			(G::Vars.hitFeedbackEnabled ? "开]" : "关]"));
 	}
 
 	void RefreshCrosshairModeUI() {

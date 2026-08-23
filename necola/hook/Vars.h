@@ -72,6 +72,12 @@ public:
     bool killFeedbackMultiKill = true;
     float killFeedbackWindow = 3.0f;
 
+    // skeeto-style hit feedback: floating damage numbers + crosshair hit marker.
+    bool hitFeedbackEnabled = false;
+    bool hitFeedbackNumbers = true;
+    bool hitFeedbackHitMarker = true;
+    bool hitFeedbackCommon = false;
+
 	void Load();
 };
 

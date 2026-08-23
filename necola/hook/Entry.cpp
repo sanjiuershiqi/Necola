@@ -12,6 +12,7 @@
 #include "./Feature/AdsSupport/AdsSupport.h"
 #include "./Feature/CampaignTimer/CampaignTimer.h"
 #include "./Feature/KillFeedback/KillFeedback.h"
+#include "./Feature/HitFeedback/HitFeedback.h"
 #include "../sdk/L4NEnv.h"
 #include "../sdk/l4d2/interfaces/IConVar.h"
 #include "../sdk/utils/FeatureConfigManager.h"
@@ -242,6 +243,7 @@ static bool RunLoadBody()
 		}
 		F::MenuMgr.LoadConfig(doc);
 		F::KillFeedbackMgr.LoadConfig(doc);
+		F::HitFeedbackMgr.LoadConfig(doc);
 	}
 	ELog("Step 6 done");
 
@@ -319,6 +321,13 @@ static bool RunLoadBody()
 		ELog("WARN: one or more kill feedback event listeners failed to register");
 	}
 	ELog("Step 11 done");
+
+	// Hit feedback uses the same official AddListener channel (server-safe).
+	ELog("Step 12: HitFeedback listeners");
+	if (!F::HitFeedbackMgr.InitListeners()) {
+		ELog("WARN: hit feedback event listeners failed to register");
+	}
+	ELog("Step 12 done");
 	return true;
 }
 
@@ -330,6 +339,8 @@ void CGlobal_ModuleEntry::undo()
 	F::CampaignTimerMgr.Shutdown();
 	ELog("undo: release kill feedback materials");
 	F::KillFeedbackMgr.Shutdown();
+	ELog("undo: shutdown hit feedback");
+	F::HitFeedbackMgr.Shutdown();
 	ELog("undo: restore RecvProp proxies");
 	F::SModify.RecvPropDataUnhook();
 	ELog("undo: G::Hooks.undo()");
