@@ -3,21 +3,10 @@
 #include "../../../sdk/SDK.h"
 #include "../../../sdk/l4d2/entities/IGameEventListener2.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
-
-enum class KillFeedbackEffect {
-	Kill1,
-	Kill2,
-	Kill3,
-	Kill4,
-	Kill5,
-	Kill6,
-	Headshot,
-	Melee,
-	Explosion,
-};
 
 class KillFeedbackListener final : public IGameEventListener2 {
 public:
@@ -25,6 +14,9 @@ public:
 	int GetEventDebugID() override { return 42; }
 };
 
+// skeeto-style kill feedback: single-frame fullscreen icons and sounds from the
+// skeeto_killfeed.vpk addon (skeeto/ci/<theme> for commons, skeeto/si/<theme>
+// 1kill..10kill / headshot / knifed for special infected streaks).
 class KillFeedback {
 public:
 	void LoadConfig(const nlohmann::json& doc);
@@ -38,7 +30,10 @@ public:
 	void Stop();
 	void Reset();
 	void Shutdown();
-	void Preview(KillFeedbackEffect effect);
+	// kind: 0 common kill, 1 common headshot, 2 common melee,
+	//       3 special kill, 4 special headshot, 5 special melee,
+	//       6 special 3-streak, 7 special 10-streak.
+	void Preview(int kind);
 	void PrintStatus() const;
 
 private:
@@ -72,19 +67,21 @@ private:
 	KillMethod ClassifyTrackedDamage(IGameEvent* event) const;
 	bool IsMethodEnabled(KillMethod method) const;
 	bool IsWitchEntity(int entityId) const;
-	void Trigger(KillMethod method);
-	void StartEffect(KillFeedbackEffect effect, int streakSound);
-	bool BindFrameTexture(int frame);
-	void PlayEffectSound(KillFeedbackEffect effect, int streakSound) const;
+	void Trigger(KillMethod method, bool special);
+	void StartEffect(KillMethod method, int streakSound, bool special);
+	bool BindMaterial();
+	void PlayEffectSound(const char* sound) const;
+	void ResolveAssets(char* material, std::size_t materialSize,
+		char* sound, std::size_t soundSize) const;
 
-	static const char* EffectName(KillFeedbackEffect effect);
-	static int EffectStreak(KillFeedbackEffect effect);
 	static const char* MethodName(KillMethod method);
 	static const char* SpecialVictimName(SpecialVictim victim);
 	static SpecialVictim SpecialVictimFromZombieClass(int zombieClass);
 	static SpecialVictim SpecialVictimFromAbility(const char* ability);
 
-	KillFeedbackEffect m_effect = KillFeedbackEffect::Kill1;
+	KillMethod m_method = KillMethod::Firearm;
+	int m_streakSound = 1;
+	bool m_special = false;
 	float m_animationStart = 0.0f;
 	float m_lastKillTime = -1000.0f;
 	int m_streak = 0;

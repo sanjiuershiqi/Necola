@@ -163,8 +163,9 @@ Necola 不读取 `FeatureConfig.json` 中的 `KeyBinds` 数组，也不会自动
 
 ### 3.5 外部击杀反馈素材
 
-击杀反馈素材不进入 DLL，也不提交到仓库。开发环境中的 `CF动态击杀反馈/` 被 `.gitignore` 忽略；
-运行时只需要它的 `materials/overlays/cf/` 和 `sound/cf/`，不需要
+击杀反馈素材不进入 DLL，也不提交到仓库。运行时素材来自外部 addon 包 `skeeto_killfeed.vpk`
+（`Necola_analysis/addons/`），安装到 `<L4D2>/left4dead2/addons/` 自动挂载；插件引用其中的
+`materials/skeeto/ci|si/...` 图标和 `sound/skeeto/...` 音效。不需要旧 CF 目录或
 `addons/sourcemod/plugins/hitsound_v2.smx`。
 
 配置段为：

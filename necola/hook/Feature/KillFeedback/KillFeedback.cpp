@@ -11,8 +11,7 @@
 #include <cstring>
 
 namespace {
-constexpr int FRAME_COUNT = 85;
-constexpr float FRAME_INTERVAL = 1.0f / 30.0f;
+constexpr float ICON_DURATION = 1.0f;
 constexpr float MIN_STREAK_WINDOW = 0.5f;
 constexpr float MAX_STREAK_WINDOW = 10.0f;
 constexpr int KF_DMG_BLAST = 1 << 6;
@@ -304,7 +303,7 @@ void KillFeedback::HandleSpecialKill(SpecialVictim victim, KillMethod method, in
 	m_lastSpecialKillTime = now;
 	KFLog("special accepted source=%s victim=%s userid=%d method=%s", source,
 		SpecialVictimName(victim), victimUserId, MethodName(method));
-	Trigger(method);
+	Trigger(method, true);
 }
 
 void KillFeedback::QueueSpecialKill(SpecialVictim victim, KillMethod method, int victimUserId, const char* source) {
@@ -428,7 +427,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		m_lastCommonEntityId = entityId;
 		m_lastCommonKillTime = now;
 		KFLog("common melee accepted source=melee_kill entity=%d", entityId);
-		Trigger(KillMethod::Melee);
+		Trigger(KillMethod::Melee, false);
 		return;
 	}
 	if (std::strcmp(name, "player_hurt") == 0) {
@@ -522,6 +521,13 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		if (!G::Vars.killFeedbackSpecial || !G::Vars.killFeedbackWitch || !local) return;
 		method = ClassifyWitchKill(event);
 		m_infectedDamage.erase(event->GetInt("witchid", 0));
+		if (!IsMethodEnabled(method)) {
+			KFLog("witch kill ignored: method=%s disabled", MethodName(method));
+			return;
+		}
+		KFLog("witch kill accepted: method=%s", MethodName(method));
+		Trigger(method, true);
+		return;
 	} else {
 		return;
 	}
@@ -531,15 +537,14 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		return;
 	}
 	KFLog("kill accepted: method=%s", MethodName(method));
-	Trigger(method);
+	Trigger(method, false);
 }
 
-void KillFeedback::Trigger(KillMethod method) {
+void KillFeedback::Trigger(KillMethod method, bool special) {
 	if (method == KillMethod::Melee || method == KillMethod::Explosion) {
-		const KillFeedbackEffect effect = method == KillMethod::Melee
-			? KillFeedbackEffect::Melee : KillFeedbackEffect::Explosion;
-		KFLog("trigger method-only effect=%s; streak unchanged=%d", EffectName(effect), m_streak);
-		StartEffect(effect, 1);
+		KFLog("trigger method-only method=%s special=%d; streak unchanged=%d",
+			MethodName(method), special, m_streak);
+		StartEffect(method, 1, special);
 		return;
 	}
 
@@ -551,52 +556,12 @@ void KillFeedback::Trigger(KillMethod method) {
 	}
 	m_lastKillTime = now;
 
-	KillFeedbackEffect effect = KillFeedbackEffect::Kill1;
-	const bool useMultiKill = G::Vars.killFeedbackMultiKill && m_streak >= 2;
-	if (useMultiKill) {
-		switch (std::min(m_streak, 6)) {
-			case 2: effect = KillFeedbackEffect::Kill2; break;
-			case 3: effect = KillFeedbackEffect::Kill3; break;
-			case 4: effect = KillFeedbackEffect::Kill4; break;
-			case 5: effect = KillFeedbackEffect::Kill5; break;
-			default: effect = KillFeedbackEffect::Kill6; break;
-		}
-	} else {
-		switch (method) {
-			case KillMethod::Headshot: effect = KillFeedbackEffect::Headshot; break;
-			case KillMethod::Melee: effect = KillFeedbackEffect::Melee; break;
-			case KillMethod::Explosion: effect = KillFeedbackEffect::Explosion; break;
-			default: effect = KillFeedbackEffect::Kill1; break;
-		}
-	}
-	KFLog("trigger streak=%d effect=%s multi=%d", m_streak, EffectName(effect), useMultiKill);
-	StartEffect(effect, useMultiKill ? m_streak : 1);
-}
-
-const char* KillFeedback::EffectName(KillFeedbackEffect effect) {
-	switch (effect) {
-		case KillFeedbackEffect::Kill1: return "1kill";
-		case KillFeedbackEffect::Kill2: return "2kill";
-		case KillFeedbackEffect::Kill3: return "3kill";
-		case KillFeedbackEffect::Kill4: return "4kill";
-		case KillFeedbackEffect::Kill5: return "5kill";
-		case KillFeedbackEffect::Kill6: return "6kill";
-		case KillFeedbackEffect::Headshot: return "headshot";
-		case KillFeedbackEffect::Melee: return "meleekill";
-		case KillFeedbackEffect::Explosion: return "boom";
-	}
-	return "1kill";
-}
-
-int KillFeedback::EffectStreak(KillFeedbackEffect effect) {
-	switch (effect) {
-		case KillFeedbackEffect::Kill2: return 2;
-		case KillFeedbackEffect::Kill3: return 3;
-		case KillFeedbackEffect::Kill4: return 4;
-		case KillFeedbackEffect::Kill5: return 5;
-		case KillFeedbackEffect::Kill6: return 6;
-		default: return 1;
-	}
+	// skeeto ci themes disable streaks; only the special channel counts up.
+	const bool useStreak = special && G::Vars.killFeedbackMultiKill && m_streak >= 2;
+	const int streakSound = useStreak ? std::min(m_streak, 10) : 1;
+	KFLog("trigger streak=%d method=%s special=%d multi=%d", m_streak, MethodName(method),
+		special, useStreak);
+	StartEffect(method, streakSound, special);
 }
 
 const char* KillFeedback::MethodName(KillMethod method) {
@@ -647,59 +612,97 @@ KillFeedback::SpecialVictim KillFeedback::SpecialVictimFromAbility(const char* a
 	return SpecialVictim::Unknown;
 }
 
-void KillFeedback::StartEffect(KillFeedbackEffect effect, int streakSound) {
+void KillFeedback::ResolveAssets(char* material, std::size_t materialSize,
+	char* sound, std::size_t soundSize) const {
+	if (m_special) {
+		if (m_method == KillMethod::Melee) {
+			_snprintf_s(material, materialSize, _TRUNCATE, "skeeto/si/cf/knifed");
+			_snprintf_s(sound, soundSize, _TRUNCATE, "skeeto/si/cf/knifed.mp3");
+		} else if (m_method == KillMethod::Headshot) {
+			_snprintf_s(material, materialSize, _TRUNCATE, "skeeto/si/cf/headshot");
+			_snprintf_s(sound, soundSize, _TRUNCATE, "skeeto/si/cf/headshot.mp3");
+		} else {
+			_snprintf_s(material, materialSize, _TRUNCATE, "skeeto/si/cf/%dkill",
+				std::max(1, std::min(m_streakSound, 10)));
+			_snprintf_s(sound, soundSize, _TRUNCATE, "skeeto/si/cf/%dkill.mp3",
+				std::max(1, std::min(m_streakSound, 10)));
+		}
+	} else {
+		if (m_method == KillMethod::Melee) {
+			_snprintf_s(material, materialSize, _TRUNCATE, "skeeto/ci/cf/melee");
+			_snprintf_s(sound, soundSize, _TRUNCATE, "skeeto/ci/cf/melee.mp3");
+		} else if (m_method == KillMethod::Headshot) {
+			_snprintf_s(material, materialSize, _TRUNCATE, "skeeto/ci/cf/headshot");
+			_snprintf_s(sound, soundSize, _TRUNCATE, "skeeto/ci/cf/headshot.mp3");
+		} else {
+			_snprintf_s(material, materialSize, _TRUNCATE, "skeeto/ci/cf/kill");
+			_snprintf_s(sound, soundSize, _TRUNCATE, "skeeto/ci/cf/kill.mp3");
+		}
+	}
+}
+
+void KillFeedback::StartEffect(KillMethod method, int streakSound, bool special) {
 	Stop();
-	m_effect = effect;
+	m_method = method;
+	m_streakSound = streakSound;
+	m_special = special;
 	m_animationStart = PresentationTime();
 	m_boundFrame = -1;
 	m_animating = G::Vars.killFeedbackVisual;
 	m_drawLogged = false;
-	KFLog("effect start name=%s visual=%d sound=%d streakSound=%d", EffectName(effect),
-		G::Vars.killFeedbackVisual, G::Vars.killFeedbackSound, streakSound);
-	if (G::Vars.killFeedbackSound) PlayEffectSound(effect, streakSound);
+	char material[96] = {};
+	char sound[96] = {};
+	ResolveAssets(material, sizeof(material), sound, sizeof(sound));
+	KFLog("effect start material=%s sound=%s visual=%d", material,
+		G::Vars.killFeedbackSound ? sound : "(muted)", G::Vars.killFeedbackVisual);
+	if (G::Vars.killFeedbackSound) PlayEffectSound(sound);
 }
 
-void KillFeedback::Preview(KillFeedbackEffect effect) {
-	KFLog("preview requested effect=%s", EffectName(effect));
-	StartEffect(effect, EffectStreak(effect));
-}
-
-void KillFeedback::PlayEffectSound(KillFeedbackEffect effect, int streakSound) const {
-	char sample[64] = {};
-	if (streakSound >= 2) {
-		_snprintf_s(sample, sizeof(sample), _TRUNCATE, "cf/multikill_%d.mp3", std::min(streakSound, 10));
-	} else if (effect == KillFeedbackEffect::Headshot) {
-		strcpy_s(sample, "cf/headshot.mp3");
-	} else if (effect == KillFeedbackEffect::Explosion) {
-		strcpy_s(sample, "cf/grenadekill.mp3");
-	} else {
-		strcpy_s(sample, "cf/kill.mp3");
+void KillFeedback::Preview(int kind) {
+	KillMethod method = KillMethod::Firearm;
+	int streak = 1;
+	bool special = false;
+	switch (kind) {
+		case 1: method = KillMethod::Headshot; break;
+		case 2: method = KillMethod::Melee; break;
+		case 3: special = true; break;
+		case 4: special = true; method = KillMethod::Headshot; break;
+		case 5: special = true; method = KillMethod::Melee; break;
+		case 6: special = true; streak = 3; break;
+		case 7: special = true; streak = 10; break;
+		default: break;
 	}
+	KFLog("preview requested kind=%d", kind);
+	StartEffect(method, streak, special);
+}
+
+void KillFeedback::PlayEffectSound(const char* sound) const {
 	if (!I::MatSystemSurface) {
-		KFLog("sound skipped sample=%s: MatSystemSurface unavailable", sample);
+		KFLog("sound skipped sample=%s: MatSystemSurface unavailable", sound);
 		return;
 	}
-	KFLog("sound play begin sample=%s", sample);
-	I::MatSystemSurface->PlaySound(sample);
-	KFLog("sound play returned sample=%s", sample);
+	KFLog("sound play begin sample=%s", sound);
+	I::MatSystemSurface->PlaySound(sound);
+	KFLog("sound play returned sample=%s", sound);
 }
 
-bool KillFeedback::BindFrameTexture(int frame) {
+bool KillFeedback::BindMaterial() {
 	if (!I::MatSystemSurface) {
-		KFLog("frame bind failed effect=%s frame=%d: MatSystemSurface unavailable", EffectName(m_effect), frame);
+		KFLog("material bind failed method=%s: MatSystemSurface unavailable",
+			MethodName(m_method));
 		return false;
 	}
 	if (m_textureId < 0) m_textureId = I::MatSystemSurface->CreateNewTextureID();
 	if (m_textureId < 0) return false;
-	char materialName[128] = {};
-	_snprintf_s(materialName, sizeof(materialName), _TRUNCATE,
-		"overlays/cf/%s_%03d", EffectName(m_effect), frame);
-	I::MatSystemSurface->DrawSetTextureFile(m_textureId, materialName, 1, false);
+	char material[96] = {};
+	char sound[96] = {};
+	ResolveAssets(material, sizeof(material), sound, sizeof(sound));
+	I::MatSystemSurface->DrawSetTextureFile(m_textureId, material, 1, false);
 	const bool valid = I::MatSystemSurface->IsTextureIDValid(m_textureId);
-	if (frame == 0 || !valid) KFLog("frame bind effect=%s frame=%d textureId=%d valid=%d path=%s",
-		EffectName(m_effect), frame, m_textureId, valid, materialName);
+	KFLog("material bind method=%s textureId=%d valid=%d path=%s",
+		MethodName(m_method), m_textureId, valid, material);
 	if (!valid) return false;
-	m_boundFrame = frame;
+	m_boundFrame = 1;
 	return true;
 }
 
@@ -707,16 +710,14 @@ void KillFeedback::Draw() {
 	FlushPendingSpecialKills();
 	if (!m_animating || !G::Vars.killFeedbackVisual || !I::GlobalVars || !I::MatSystemSurface) return;
 	if (!m_drawLogged) {
-		KFLog("Draw entered effect=%s textureId=%d", EffectName(m_effect), m_textureId);
+		KFLog("Draw entered method=%s textureId=%d", MethodName(m_method), m_textureId);
 		m_drawLogged = true;
 	}
-	const int frame = static_cast<int>((PresentationTime() - m_animationStart) / FRAME_INTERVAL);
-	if (frame < 0 || frame >= FRAME_COUNT) {
-		KFLog("animation complete effect=%s frame=%d", EffectName(m_effect), frame);
+	if (PresentationTime() - m_animationStart >= ICON_DURATION) {
 		Stop();
 		return;
 	}
-	if (frame != m_boundFrame && !BindFrameTexture(frame)) {
+	if (m_boundFrame < 0 && !BindMaterial()) {
 		Stop();
 		return;
 	}
@@ -739,7 +740,7 @@ void KillFeedback::Draw() {
 }
 
 void KillFeedback::Stop() {
-	if (m_animating || m_boundFrame >= 0) KFLog("effect stop name=%s frame=%d", EffectName(m_effect), m_boundFrame);
+	if (m_animating || m_boundFrame >= 0) KFLog("effect stop method=%s", MethodName(m_method));
 	m_animating = false;
 	m_boundFrame = -1;
 	m_drawLogged = false;
@@ -801,10 +802,10 @@ void KillFeedback::Shutdown() {
 void KillFeedback::PrintStatus() const {
 	char message[512] = {};
 	_snprintf_s(message, sizeof(message), _TRUNCATE,
-		"enabled=%d log=%d common=%d special=%d visual=%d sound=%d animating=%d effect=%s frame=%d streak=%d textureId=%d window=%.2f",
+		"enabled=%d log=%d common=%d special=%d visual=%d sound=%d animating=%d method=%s special=%d streakSound=%d streak=%d textureId=%d window=%.2f",
 		G::Vars.killFeedbackEnabled, G::Vars.killFeedbackLog, G::Vars.killFeedbackCommon,
 		G::Vars.killFeedbackSpecial, G::Vars.killFeedbackVisual, G::Vars.killFeedbackSound,
-		m_animating, EffectName(m_effect), m_boundFrame, m_streak, m_textureId,
+		m_animating, MethodName(m_method), m_special, m_streakSound, m_streak, m_textureId,
 		G::Vars.killFeedbackWindow);
 	KFLog("status %s", message);
 	if (I::Cvars) I::Cvars->ConsolePrintf("[Necola] KillFeedback %s\n", message);

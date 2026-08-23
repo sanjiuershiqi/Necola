@@ -309,7 +309,7 @@ static bool RunLoadBody()
 			F::KillFeedbackMgr.PrintStatus();
 		}, "print Necola kill feedback status");
 		F::CmdMgr.RegistCommand("necola_killfeedback_test", [](int*) {
-			F::KillFeedbackMgr.Preview(KillFeedbackEffect::Kill1);
+			F::KillFeedbackMgr.Preview(0);
 		}, "test Necola kill feedback assets");
 	}
 	ELog("Step 10 done");

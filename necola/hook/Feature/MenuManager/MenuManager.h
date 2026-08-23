@@ -673,15 +673,13 @@ public:
 			auto previewMenu = killFeedbackMenu->addSubMenu("测试效果", "kill_feedback_preview", "测试效果");
 			registerMenu(previewMenu);
 			if (previewMenu) {
-				const std::pair<const char*, KillFeedbackEffect> previews[] = {
-					{"普通击杀", KillFeedbackEffect::Kill1}, {"二连杀", KillFeedbackEffect::Kill2},
-					{"三连杀", KillFeedbackEffect::Kill3}, {"四连杀", KillFeedbackEffect::Kill4},
-					{"五连杀", KillFeedbackEffect::Kill5}, {"六连杀", KillFeedbackEffect::Kill6},
-					{"爆头击杀", KillFeedbackEffect::Headshot}, {"近战击杀", KillFeedbackEffect::Melee},
-					{"爆炸击杀", KillFeedbackEffect::Explosion},
+				const std::pair<const char*, int> previews[] = {
+					{"普通击杀", 0}, {"普通爆头", 1}, {"普通近战", 2},
+					{"特感击杀", 3}, {"特感爆头", 4}, {"特感近战", 5},
+					{"特感三连杀", 6}, {"特感十连杀", 7},
 				};
-				for (const auto& [label, effect] : previews) {
-					previewMenu->addOption(label, [effect]() { F::KillFeedbackMgr.Preview(effect); });
+				for (const auto& [label, kind] : previews) {
+					previewMenu->addOption(label, [kind]() { F::KillFeedbackMgr.Preview(kind); });
 				}
 			}
 		}
