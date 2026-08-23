@@ -689,12 +689,12 @@ public:
 		auto hitFeedbackMenu = rootMenu->addSubMenu("命中反馈 [关]", "hit_feedback", "命中反馈");
 		registerMenu(hitFeedbackMenu);
 		if (hitFeedbackMenu) {
-			auto addHitSwitch = [](const std::shared_ptr<MenuNode>& menu, const char* label,
+			auto addHitSwitch = [this](const std::shared_ptr<MenuNode>& menu, const char* label,
 				bool* setting) {
-				menu->addSwitch(label, *setting, [setting](bool state) {
+				menu->addSwitch(label, *setting, [this, setting](bool state) {
 					*setting = state;
 					F::HitFeedbackMgr.SaveConfig();
-					F::MenuMgr.RefreshRootLabels();
+					RefreshRootLabels();
 				});
 			};
 			addHitSwitch(hitFeedbackMenu, "启用命中反馈", &G::Vars.hitFeedbackEnabled);
