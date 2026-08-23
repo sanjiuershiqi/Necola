@@ -145,7 +145,7 @@ void InGameMenu::InitConfigSwitches() {
 		killFeedbackMenu->setSwitchStateByName("启用击杀反馈", G::Vars.killFeedbackEnabled);
 		killFeedbackMenu->setSwitchStateByName("普通感染者", G::Vars.killFeedbackCommon);
 		killFeedbackMenu->setSwitchStateByName("特殊感染者（含Witch）", G::Vars.killFeedbackSpecial);
-		killFeedbackMenu->setSwitchStateByName("视觉动画", G::Vars.killFeedbackVisual);
+		killFeedbackMenu->setSwitchStateByName("图标显示", G::Vars.killFeedbackIcon);
 		killFeedbackMenu->setSwitchStateByName("击杀音效", G::Vars.killFeedbackSound);
 	}
 	auto killMethodMenu = FindMenuById("kill_feedback_methods");

@@ -50,7 +50,7 @@ public:
     int menuAnchor = 0;       // 0=left, 1=center, 2=right
     int menuOpacity = 220;    // background alpha, clamped to 160..245
 
-    // External CF-style kill feedback.
+    // skeeto-style kill feedback (themes from skeeto_killfeed.vpk).
     bool killFeedbackEnabled = false;
     bool killFeedbackLog = false;
     bool killFeedbackCommon = true;
@@ -63,7 +63,7 @@ public:
     bool killFeedbackCharger = true;
     bool killFeedbackTank = true;
     bool killFeedbackWitch = true;
-    bool killFeedbackVisual = true;
+    bool killFeedbackIcon = true;
     bool killFeedbackSound = true;
     bool killFeedbackFirearm = true;
     bool killFeedbackHeadshot = true;
@@ -71,6 +71,11 @@ public:
     bool killFeedbackExplosion = true;
     bool killFeedbackMultiKill = true;
     float killFeedbackWindow = 3.0f;
+    // Hit overlay: 1 = kills only, 2 = kills + per-hit feedback.
+    int killFeedbackHitMode = 2;
+    bool killFeedbackHitOverlay = true;
+    bool killFeedbackHitSpecial = true;
+    bool killFeedbackHitCommon = false;
 
     // skeeto-style hit feedback: floating damage numbers + crosshair hit marker.
     bool hitFeedbackEnabled = false;

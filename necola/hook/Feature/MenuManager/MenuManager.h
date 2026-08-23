@@ -651,8 +651,55 @@ public:
 			addKillSwitch(killFeedbackMenu, "启用击杀反馈", &G::Vars.killFeedbackEnabled, true);
 			addKillSwitch(killFeedbackMenu, "普通感染者", &G::Vars.killFeedbackCommon, false);
 			addKillSwitch(killFeedbackMenu, "特殊感染者（含Witch）", &G::Vars.killFeedbackSpecial, false);
-			addKillSwitch(killFeedbackMenu, "视觉动画", &G::Vars.killFeedbackVisual, true);
+			addKillSwitch(killFeedbackMenu, "图标显示", &G::Vars.killFeedbackIcon, true);
 			addKillSwitch(killFeedbackMenu, "击杀音效", &G::Vars.killFeedbackSound, false);
+
+			auto siThemeMenu = killFeedbackMenu->addSubMenu("特感主题", "kill_si_theme", "特感主题");
+			registerMenu(siThemeMenu);
+			if (siThemeMenu) {
+				siThemeMenu->addOption("关闭", []() { F::KillFeedbackMgr.SetTheme("si", "off"); });
+				for (const auto& theme : F::KillFeedbackMgr.Themes()) {
+					if (theme.channel != "si") continue;
+					std::string id = theme.id;
+					siThemeMenu->addOption(theme.name.c_str(), [id]() {
+						F::KillFeedbackMgr.SetTheme("si", id);
+					});
+				}
+			}
+
+			auto ciThemeMenu = killFeedbackMenu->addSubMenu("普感主题", "kill_ci_theme", "普感主题");
+			registerMenu(ciThemeMenu);
+			if (ciThemeMenu) {
+				ciThemeMenu->addOption("关闭", []() { F::KillFeedbackMgr.SetTheme("ci", "off"); });
+				for (const auto& theme : F::KillFeedbackMgr.Themes()) {
+					if (theme.channel != "ci") continue;
+					std::string id = theme.id;
+					ciThemeMenu->addOption(theme.name.c_str(), [id]() {
+						F::KillFeedbackMgr.SetTheme("ci", id);
+					});
+				}
+			}
+
+			auto hitTipMenu = killFeedbackMenu->addSubMenu("命中提示", "kill_hit_tip", "命中提示");
+			registerMenu(hitTipMenu);
+			if (hitTipMenu) {
+				hitTipMenu->addOption("仅击杀时", []() {
+					G::Vars.killFeedbackHitMode = 1;
+					F::KillFeedbackMgr.SaveConfig();
+				});
+				hitTipMenu->addOption("击杀+每次命中", []() {
+					G::Vars.killFeedbackHitMode = 2;
+					F::KillFeedbackMgr.SaveConfig();
+				});
+				hitTipMenu->addSwitch("特感命中提示", &G::Vars.killFeedbackHitSpecial, [](bool state) {
+					G::Vars.killFeedbackHitSpecial = state;
+					F::KillFeedbackMgr.SaveConfig();
+				});
+				hitTipMenu->addSwitch("普感命中提示", &G::Vars.killFeedbackHitCommon, [](bool state) {
+					G::Vars.killFeedbackHitCommon = state;
+					F::KillFeedbackMgr.SaveConfig();
+				});
+			}
 
 			auto specialMenu = killFeedbackMenu->addSubMenu("特感分类设置", "kill_feedback_specials", "特感分类设置");
 			registerMenu(specialMenu);

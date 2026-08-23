@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 class KillFeedbackListener final : public IGameEventListener2 {
 public:
@@ -14,9 +15,37 @@ public:
 	int GetEventDebugID() override { return 42; }
 };
 
-// skeeto-style kill feedback: single-frame fullscreen icons and sounds from the
-// skeeto_killfeed.vpk addon (skeeto/ci/<theme> for commons, skeeto/si/<theme>
-// 1kill..10kill / headshot / knifed for special infected streaks).
+// Faithful port of skeeto's kill feedback:
+//  - Themes loaded from skeeto/skeeto_<id>.json (mounted via skeeto_killfeed.vpk)
+//  - Style selection with priority override (hit / streak_N / melee / headshot / kill)
+//  - Render_ScreenOverlay: throttled `r_screenoverlay <material>` client command with
+//    a pump that restores `r_screenoverlay off` when the duration elapses
+//  - Sound_PlayVol: `play <file>` client command (paths relative to sound/)
+//  - Commands unlocked once via Cmd_Unlock (clear FCVAR_CHEAT, add
+//    FCVAR_CLIENTCMD_CAN_EXECUTE) exactly like skeeto's Cmd_PlaySound.
+struct KillStyle {
+	bool enabled = false;
+	std::string overlay;
+	std::string sound;
+	int duration = 240;
+	int priority = 0;
+};
+
+struct KillTheme {
+	std::string id;
+	std::string name;
+	std::string channel;
+	bool streakEnabled = false;
+	int streakWrap = 0;
+	KillStyle hit;
+	KillStyle kill;
+	KillStyle headshot;
+	KillStyle melee;
+	KillStyle streak[11];
+	KillStyle streakDefault;
+	bool loaded = false;
+};
+
 class KillFeedback {
 public:
 	void LoadConfig(const nlohmann::json& doc);
@@ -24,17 +53,25 @@ public:
 	void SaveConfig() const;
 
 	bool InitListeners();
+	void LoadThemes();
 	void OnGameEvent(IGameEvent* event);
 	void RefreshSpecialVictims();
 	void Draw();
 	void Stop();
 	void Reset();
 	void Shutdown();
-	// kind: 0 common kill, 1 common headshot, 2 common melee,
-	//       3 special kill, 4 special headshot, 5 special melee,
-	//       6 special 3-streak, 7 special 10-streak.
 	void Preview(int kind);
 	void PrintStatus() const;
+
+	// HitFeedback_Check / HitFeedback_Check2 port: kill=true renders the kill
+	// style (240ms), kill=false renders the hit style (110ms). Returns true
+	// when a style was resolved and rendered.
+	bool HitFeedbackCheck(const char* channel, bool kill, bool headshot, bool melee, int streak);
+
+	const KillTheme* FindTheme(const char* channel, const std::string& themeId) const;
+	const std::vector<KillTheme>& Themes() const { return m_themes; }
+	const std::string& SelectedTheme(const char* channel) const;
+	void SetTheme(const char* channel, const std::string& themeId);
 
 private:
 	enum class KillMethod {
@@ -67,28 +104,29 @@ private:
 	KillMethod ClassifyTrackedDamage(IGameEvent* event) const;
 	bool IsMethodEnabled(KillMethod method) const;
 	bool IsWitchEntity(int entityId) const;
-	void Trigger(KillMethod method, bool special);
-	void StartEffect(KillMethod method, int streakSound, bool special);
-	bool BindMaterial();
-	void PlayEffectSound(const char* sound) const;
-	void ResolveAssets(char* material, std::size_t materialSize,
-		char* sound, std::size_t soundSize) const;
+	void Trigger(bool special, KillMethod method, int streak);
+	bool HitCheck(const KillTheme& theme, const char* eventName, bool headshot, bool melee,
+		int streak, KillStyle& out) const;
+	void RenderScreenOverlay(const KillStyle& style, int defaultDuration, bool allowRepeat);
+	void PumpOverlay();
+	void PlaySoundVol(const char* sound);
+	bool UnlockCommands();
 
 	static const char* MethodName(KillMethod method);
 	static const char* SpecialVictimName(SpecialVictim victim);
 	static SpecialVictim SpecialVictimFromZombieClass(int zombieClass);
 	static SpecialVictim SpecialVictimFromAbility(const char* ability);
 
-	KillMethod m_method = KillMethod::Firearm;
-	int m_streakSound = 1;
-	bool m_special = false;
-	float m_animationStart = 0.0f;
+	std::vector<KillTheme> m_themes;
+	std::string m_siTheme = "si_cf";
+	std::string m_ciTheme = "ci_cf";
+	std::uint32_t m_fxOverlayTick = 0;
+	std::uint32_t m_fxPumpTick = 0;
+	bool m_overlayActive = false;
+	bool m_commandsUnlocked = false;
+	bool m_themesLoaded = false;
 	float m_lastKillTime = -1000.0f;
 	int m_streak = 0;
-	int m_boundFrame = -1;
-	int m_textureId = -1;
-	bool m_animating = false;
-	bool m_drawLogged = false;
 	struct DamageRecord {
 		KillMethod method = KillMethod::Firearm;
 		float time = 0.0f;
