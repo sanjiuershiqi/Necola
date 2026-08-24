@@ -131,7 +131,7 @@ void CUtil_Offsets::Init()
 
 	// IBaseClient
 	//
-	m_dwPrecacheParticleSystem = U::Pattern.Find(_("client.dll"), _("55 8B EC 8B 0D B4 5E ? ? 85 C9 75 07 B8"));
+	m_dwPrecacheParticleSystem = U::Pattern.Find(_("client.dll"), _("55 8B EC 8B 0D ? ? ? ? 85 C9 75 07 B8"));
 
 
 	// TracersParticleManager
@@ -218,7 +218,7 @@ void CUtil_Offsets::Init()
 
 
 	// 14F8B0
-	m_dwDispatchParticleEffect3 = U::Pattern.Find(_("client.dll"), _("55 8B EC 8B 45 08 50 E8 D4 8F F5 FF 8B 4D 1C 8B 55 18 51 8B 4D 14 52 8B"));
+	m_dwDispatchParticleEffect3 = U::Pattern.Find(_("client.dll"), _("55 8B EC 8B 45 08 50 E8 ? ? ? ? 8B 4D 1C 8B 55 18 51 8B 4D 14 52 8B"));
 
 	// 1CC10
 	m_dwCBaseEntityFireBullets = U::Pattern.Find(_("client.dll"), _("53 8B DC 83 EC 08 83 E4 F0 83 C4 04 55 8B 6B 04 89 6C 24 04 8B EC 81 EC 58 02 00 00 A1 70 AC ? ? 33 C5 89 45 FC 56 8B"));

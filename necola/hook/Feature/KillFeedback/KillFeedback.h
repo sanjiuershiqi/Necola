@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class KillFeedbackListener final : public IGameEventListener2 {
@@ -18,18 +19,21 @@ public:
 // Faithful port of skeeto's kill feedback:
 //  - Themes loaded from skeeto/skeeto_<id>.json (mounted via skeeto_killfeed.vpk)
 //  - Style selection with priority override (hit / streak_N / melee / headshot / kill)
-//  - Render_ScreenOverlay: throttled `r_screenoverlay <material>` client command with
-//    a pump that restores `r_screenoverlay off` when the duration elapses
-//  - Sound_PlayVol: `play <file>` client command (paths relative to sound/)
+//  - Render_ScreenOverlay: overlay plus screen/world particle dispatch, with a
+//    pump that restores `r_screenoverlay off` when the duration elapses
+//  - Sound_PlayVol: `playvol <file> <volume>` client command
 //  - Commands unlocked once via Cmd_Unlock (clear FCVAR_CHEAT, add
 //    FCVAR_CLIENTCMD_CAN_EXECUTE) exactly like skeeto's Cmd_PlaySound.
 struct KillStyle {
 	bool enabled = false;
 	std::string overlay;
+	std::string particle;
+	std::vector<std::string> particles;
 	std::string sound;
 	std::vector<std::string> sounds;
 	int duration = 0;
 	int priority = 0;
+	bool world = false;
 };
 
 struct KillTheme {
@@ -113,6 +117,10 @@ private:
 	void RenderScreenOverlay(const KillStyle& style, int defaultDuration, bool allowRepeat);
 	void PumpOverlay();
 	void PlaySoundVol(const KillStyle& style);
+	void PrecacheParticles(const KillStyle& style);
+	void WarmParticles();
+	void SpawnParticles(const KillStyle& style);
+	void CaptureFeedbackPosition(IGameEvent* event, int entityIndex);
 	bool UnlockCommands();
 
 	static const char* MethodName(KillMethod method);
@@ -130,6 +138,7 @@ private:
 	bool m_themesLoaded = false;
 	float m_lastThemeLoadAttempt = -1000.0f;
 	bool m_themeFailureReported = false;
+	bool m_particlesWarmed = false;
 	int m_streak = 0;
 	struct DamageRecord {
 		KillMethod method = KillMethod::Firearm;
@@ -145,11 +154,20 @@ private:
 		KillMethod method = KillMethod::Firearm;
 		float time = 0.0f;
 		const char* source = "unknown";
+		Vector position;
+		bool positionValid = false;
+	};
+	struct FeedbackPosition {
+		Vector value;
+		bool valid = false;
 	};
 	std::unordered_map<int, DamageRecord> m_infectedDamage;
 	std::unordered_map<int, PlayerDamageRecord> m_playerDamage;
 	std::unordered_map<int, PendingSpecialKill> m_pendingSpecialKills;
 	std::unordered_map<int, SpecialVictim> m_specialVictims;
+	std::unordered_set<std::string> m_precachedParticles;
+	FeedbackPosition m_feedbackPosition;
+	FeedbackPosition m_lastImpactPosition;
 	KillFeedbackListener m_listener;
 	bool m_listenersRegistered = false;
 	int m_lastSpecialVictimUserId = 0;

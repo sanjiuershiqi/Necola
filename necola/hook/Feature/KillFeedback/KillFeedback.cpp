@@ -132,6 +132,15 @@ void KillFeedback::LoadThemes() {
 			return it != section.end() && it->is_string() ? it->get<std::string>() : std::string();
 		};
 		style.overlay = readStr("overlay");
+		style.particle = readStr("particle");
+		const auto particles = section.find("particles");
+		if (particles != section.end() && particles->is_array()) {
+			for (const auto& value : *particles) {
+				if (value.is_string() && !value.get<std::string>().empty()) {
+					style.particles.push_back(value.get<std::string>());
+				}
+			}
+		}
 		style.sound = readStr("sound");
 		const auto sounds = section.find("sounds");
 		if (sounds != section.end() && sounds->is_array()) {
@@ -151,7 +160,10 @@ void KillFeedback::LoadThemes() {
 				break;
 			}
 		}
-		style.enabled = !style.overlay.empty() || !style.sound.empty() || !style.sounds.empty();
+		const auto world = section.find("world");
+		style.world = world != section.end() && world->is_boolean() && world->get<bool>();
+		style.enabled = !style.overlay.empty() || !style.particle.empty() ||
+			!style.particles.empty() || !style.sound.empty() || !style.sounds.empty();
 	};
 	for (const char* id : ids) {
 		char path[128] = {};
@@ -233,6 +245,7 @@ void KillFeedback::SetTheme(const char* channel, const std::string& themeId) {
 		m_streak = 0;
 	}
 	else m_ciTheme = themeId;
+	m_particlesWarmed = false;
 	m_themeFailureReported = false;
 	SaveConfig();
 }
@@ -284,6 +297,95 @@ void KillFeedback::PlaySoundVol(const KillStyle& style) {
 	I::EngineClient->ClientCmd(command);
 }
 
+void KillFeedback::PrecacheParticles(const KillStyle& style) {
+	if (!U::Offsets.m_dwPrecacheParticleSystem) return;
+	using Fn = int(__cdecl*)(const char*);
+	const Fn precache = reinterpret_cast<Fn>(U::Offsets.m_dwPrecacheParticleSystem);
+	auto one = [&](const std::string& name) {
+		if (name.empty() || m_precachedParticles.contains(name)) return;
+		MEMORY_BASIC_INFORMATION info = {};
+		if (!VirtualQuery(reinterpret_cast<const void*>(precache), &info, sizeof(info)) ||
+			(info.Protect & 0xF0) == 0) return;
+		precache(name.c_str());
+		m_precachedParticles.insert(name);
+		if (U::Offsets.m_dwDispatchParticleEffect3) {
+			using DispatchFn = void(__cdecl*)(const char*, Vector*, Vector*, int, int, int);
+			const DispatchFn dispatch = reinterpret_cast<DispatchFn>(U::Offsets.m_dwDispatchParticleEffect3);
+			MEMORY_BASIC_INFORMATION dispatchInfo = {};
+			if (VirtualQuery(reinterpret_cast<const void*>(dispatch), &dispatchInfo, sizeof(dispatchInfo)) &&
+				(dispatchInfo.Protect & 0xF0) != 0) {
+				Vector hidden(-8192.0f, -8192.0f, -8192.0f);
+				Vector angles;
+				dispatch(name.c_str(), &hidden, &angles, 2, 0, 0);
+			}
+		}
+		KFLog("particle precached %s", name.c_str());
+	};
+	one(style.particle);
+	for (const auto& name : style.particles) one(name);
+}
+
+void KillFeedback::WarmParticles() {
+	if (m_particlesWarmed || !m_themesLoaded || !I::EngineClient ||
+		!I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
+	auto warmTheme = [&](const KillTheme* theme) {
+		if (!theme) return;
+		PrecacheParticles(theme.hit);
+		PrecacheParticles(theme.kill);
+		PrecacheParticles(theme.headshot);
+		PrecacheParticles(theme.melee);
+		PrecacheParticles(theme.streakDefault);
+		for (int i = 1; i <= 10; ++i) PrecacheParticles(theme.streak[i]);
+	};
+	warmTheme(FindTheme("si", m_siTheme));
+	warmTheme(FindTheme("ci", m_ciTheme));
+	m_particlesWarmed = true;
+	KFLog("particle warm complete count=%d", static_cast<int>(m_precachedParticles.size()));
+}
+
+void KillFeedback::SpawnParticles(const KillStyle& style) {
+	if (!G::Vars.killFeedbackIcon || !U::Offsets.m_dwDispatchParticleEffect3) return;
+	PrecacheParticles(style);
+	using Fn = void(__cdecl*)(const char*, Vector*, Vector*, int, int, int);
+	const Fn dispatch = reinterpret_cast<Fn>(U::Offsets.m_dwDispatchParticleEffect3);
+	MEMORY_BASIC_INFORMATION info = {};
+	if (!VirtualQuery(reinterpret_cast<const void*>(dispatch), &info, sizeof(info)) ||
+		(info.Protect & 0xF0) == 0) return;
+	Vector origin;
+	if (style.world && m_feedbackPosition.valid) origin = m_feedbackPosition.value;
+	Vector angles;
+	auto one = [&](const std::string& name) {
+		if (name.empty()) return;
+		dispatch(name.c_str(), &origin, &angles, 2, 0, 0);
+		KFLog("particle spawned %s world=%d at %.0f %.0f %.0f", name.c_str(), style.world,
+			origin.x, origin.y, origin.z);
+	};
+	one(style.particle);
+	for (const auto& name : style.particles) one(name);
+}
+
+void KillFeedback::CaptureFeedbackPosition(IGameEvent* event, int entityIndex) {
+	m_feedbackPosition = {};
+	if (event) {
+		const float x = event->GetFloat("victim_x", 0.0f);
+		const float y = event->GetFloat("victim_y", 0.0f);
+		const float z = event->GetFloat("victim_z", 0.0f);
+		if (x != 0.0f || y != 0.0f || z != 0.0f) {
+			m_feedbackPosition.value = Vector(x, y, z);
+			m_feedbackPosition.valid = true;
+			return;
+		}
+	}
+	if (entityIndex > 0 && I::ClientEntityList) {
+		if (auto* entity = I::ClientEntityList->GetClientEntity(entityIndex)) {
+			m_feedbackPosition.value = entity->GetAbsOrigin();
+			m_feedbackPosition.valid = true;
+			return;
+		}
+	}
+	if (m_lastImpactPosition.valid) m_feedbackPosition = m_lastImpactPosition;
+}
+
 void KillFeedback::RenderScreenOverlay(const KillStyle& style, int defaultDuration,
 	bool allowRepeat) {
 	if (!style.enabled) return;
@@ -295,6 +397,7 @@ void KillFeedback::RenderScreenOverlay(const KillStyle& style, int defaultDurati
 	// throttle; icons gate only the r_screenoverlay command.
 	PlaySoundVol(style);
 
+	if (G::Vars.killFeedbackIcon) SpawnParticles(style);
 	if (!G::Vars.killFeedbackIcon || style.overlay.empty()) return;
 	if (!I::EngineClient) return;
 	int duration = style.duration > 0 ? style.duration : defaultDuration;
@@ -369,10 +472,11 @@ bool KillFeedback::ResolveCombinedFeedback(bool kill, bool headshot, bool melee,
 		preferredSound = &siStyle.sound;
 	}
 	output.sound = preferredSound ? *preferredSound : std::string();
-	output.enabled = !output.overlay.empty() || !output.sound.empty() || !output.sounds.empty();
-	KFLog("combined kill=%d si=%d ci=%d siVisual=%d siSound=%d overlay=%s sound=%s",
+	output.enabled = !output.overlay.empty() || !output.particle.empty() ||
+		!output.particles.empty() || !output.sound.empty() || !output.sounds.empty();
+	KFLog("combined kill=%d si=%d ci=%d siVisual=%d siSound=%d overlay=%s particle=%s sound=%s",
 		kill, siValid, ciValid, G::Vars.killFeedbackSiDedicated,
-		G::Vars.killFeedbackSiSound, output.overlay.c_str(), output.sound.c_str());
+		G::Vars.killFeedbackSiSound, output.overlay.c_str(), output.particle.c_str(), output.sound.c_str());
 	RenderScreenOverlay(output, kill ? KILL_DURATION_MS : HIT_DURATION_MS, kill);
 	return true;
 }
@@ -459,7 +563,8 @@ void KillFeedback::QueueSpecialKill(SpecialVictim victim, KillMethod method, int
 		HandleSpecialKill(victim, method, victimUserId, source);
 		return;
 	}
-	m_pendingSpecialKills[victimUserId] = {victim, method, PresentationTime(), source};
+	m_pendingSpecialKills[victimUserId] = {victim, method, PresentationTime(), source,
+		m_feedbackPosition.value, m_feedbackPosition.valid};
 	KFLog("special queued source=%s victim=%s userid=%d method=%s", source,
 		SpecialVictimName(victim), victimUserId, MethodName(method));
 }
@@ -474,6 +579,8 @@ void KillFeedback::FlushPendingSpecialKills() {
 		const int victimUserId = it->first;
 		const PendingSpecialKill pending = it->second;
 		it = m_pendingSpecialKills.erase(it);
+		m_feedbackPosition.value = pending.position;
+		m_feedbackPosition.valid = pending.positionValid;
 		HandleSpecialKill(pending.victim, pending.method, victimUserId, pending.source);
 		m_playerDamage.erase(victimUserId);
 		m_specialVictims.erase(victimUserId);
@@ -585,6 +692,14 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		Reset();
 		return;
 	}
+	if (std::strcmp(name, "bullet_impact") == 0) {
+		if (IsLocalAttacker(event, "userid")) {
+			m_lastImpactPosition.value = Vector(event->GetFloat("x", 0.0f),
+				event->GetFloat("y", 0.0f), event->GetFloat("z", 0.0f));
+			m_lastImpactPosition.valid = true;
+		}
+		return;
+	}
 
 	const bool killEvent = std::strcmp(name, "infected_death") == 0 ||
 		std::strcmp(name, "player_death") == 0 || std::strcmp(name, "witch_killed") == 0;
@@ -596,6 +711,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		const bool local = IsLocalAttacker(event, "attacker");
 		if (!local) return;
 		const int entityId = event->GetInt("entityid", 0);
+		CaptureFeedbackPosition(event, entityId);
 		const bool witch = IsWitchEntity(entityId);
 		const KillMethod hurtMethod = ClassifyTrackedDamage(event);
 		m_infectedDamage[entityId] = {hurtMethod, SimulationTime()};
@@ -610,6 +726,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 	}
 	if (std::strcmp(name, "melee_kill") == 0) {
 		const int entityId = event->GetInt("entityid", 0);
+		CaptureFeedbackPosition(event, entityId);
 		if (IsLocalAttacker(event, "userid") && IsWitchEntity(entityId)) {
 			m_infectedDamage[entityId] = {KillMethod::Melee, SimulationTime()};
 			KFLog("tracked Witch melee_kill entity=%d", entityId);
@@ -629,6 +746,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		const bool local = IsLocalAttacker(event, "attacker");
 		if (!local) return;
 		const int victimUserId = event->GetInt("userid", 0);
+		CaptureFeedbackPosition(event, I::EngineClient->GetPlayerForUserID(victimUserId));
 		const SpecialVictim victim = GetSpecialVictim(event);
 		if (victim == SpecialVictim::Unknown) return;
 		const KillMethod hurtMethod = ClassifySpecialKill(event);
@@ -666,6 +784,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 	if (dedicatedVictim != SpecialVictim::Unknown) {
 		if (!IsLocalAttacker(event, "attacker")) return;
 		const int victimUserId = event->GetInt("userid", 0);
+		CaptureFeedbackPosition(event, I::EngineClient->GetPlayerForUserID(victimUserId));
 		m_specialVictims[victimUserId] = dedicatedVictim;
 		KillMethod dedicatedMethod = KillMethod::Firearm;
 		const auto tracked = m_playerDamage.find(victimUserId);
@@ -683,6 +802,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 	KillMethod method = KillMethod::Firearm;
 	if (std::strcmp(name, "infected_death") == 0) {
 		const int infectedId = event->GetInt("infected_id", 0);
+		CaptureFeedbackPosition(event, infectedId);
 		const bool local = IsLocalAttacker(event, "attacker");
 		KFLog("event=infected_death attacker=%d local=%d commonEnabled=%d weaponId=%d headshot=%d blast=%d",
 			event->GetInt("attacker", 0), local, G::Vars.killFeedbackCommon,
@@ -707,6 +827,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 			event->GetString("weapon", ""), event->GetBool("headshot", false), event->GetInt("type", 0));
 		if (!local || victim == SpecialVictim::Unknown) return;
 		const int victimUserId = event->GetInt("userid", 0);
+		CaptureFeedbackPosition(event, I::EngineClient->GetPlayerForUserID(victimUserId));
 		m_pendingSpecialKills.erase(victimUserId);
 		const auto tracked = m_playerDamage.find(victimUserId);
 		method = tracked != m_playerDamage.end() ? tracked->second.method : ClassifySpecialKill(event);
@@ -720,6 +841,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 			event->GetInt("userid", 0), local, G::Vars.killFeedbackSpecial, G::Vars.killFeedbackWitch,
 			event->GetInt("witchid", 0), event->GetBool("melee_only", false));
 		if (!G::Vars.killFeedbackSpecial || !G::Vars.killFeedbackWitch || !local) return;
+		CaptureFeedbackPosition(event, event->GetInt("witchid", 0));
 		method = ClassifyWitchKill(event);
 		m_infectedDamage.erase(event->GetInt("witchid", 0));
 		if (!IsMethodEnabled(method)) {
@@ -812,6 +934,8 @@ KillFeedback::SpecialVictim KillFeedback::SpecialVictimFromAbility(const char* a
 }
 
 void KillFeedback::Draw() {
+	LoadThemes();
+	WarmParticles();
 	FlushPendingSpecialKills();
 	PumpOverlay();
 }
@@ -836,6 +960,10 @@ void KillFeedback::Reset() {
 	m_lastCommonKillTime = -1000.0f;
 	m_lastVictimRefresh = -1000.0f;
 	m_themeFailureReported = false;
+	m_particlesWarmed = false;
+	m_precachedParticles.clear();
+	m_feedbackPosition = {};
+	m_lastImpactPosition = {};
 }
 
 bool KillFeedback::InitListeners() {
@@ -845,6 +973,7 @@ bool KillFeedback::InitListeners() {
 	}
 	static const char* const kEvents[] = {
 		"round_start", "mission_lost", "map_transition",
+		"bullet_impact",
 		"player_spawn", "ability_use", "tank_spawn",
 		"player_hurt", "player_death",
 		"infected_hurt", "infected_death", "melee_kill",
@@ -876,6 +1005,19 @@ void KillFeedback::Shutdown() {
 void KillFeedback::Preview(int kind) {
 	LoadThemes();
 	if (!UnlockCommands()) return;
+	if (I::EngineClient && I::ClientEntityList) {
+		const int localIndex = I::EngineClient->GetLocalPlayer();
+		auto* entity = I::ClientEntityList->GetClientEntity(localIndex);
+		auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
+		if (player) {
+			Vector angles;
+			Vector forward;
+			I::EngineClient->GetViewAngles(angles);
+			U::Math.AngleVectors(angles, &forward);
+			m_feedbackPosition.value = player->m_vecOrigin() + player->m_vecViewOffset() + forward * 180.0f;
+			m_feedbackPosition.valid = true;
+		}
+	}
 	bool headshot = false;
 	bool melee = false;
 	int streak = 1;
@@ -981,15 +1123,18 @@ void KillFeedback::SaveConfig() const {
 	nlohmann::json doc = NecolaConfig::LoadConfig();
 	SaveConfig(doc);
 	NecolaConfig::SaveConfig(doc);
-	KFLog("config saved si=%s ci=%d", m_siTheme.c_str(), m_ciTheme.c_str());
+	KFLog("config saved si=%s ci=%s", m_siTheme.c_str(), m_ciTheme.c_str());
 }
 
 void KillFeedback::PrintStatus() const {
 	char message[512] = {};
 	_snprintf_s(message, sizeof(message), _TRUNCATE,
-		"enabled=%d si=%s ci=%s themes=%d streak=%d overlayActive=%d",
+		"enabled=%d si=%s ci=%s themes=%d streak=%d overlay=%d particles=%d precache=%p dispatch=%p",
 		G::Vars.killFeedbackEnabled, m_siTheme.c_str(), m_ciTheme.c_str(),
-		static_cast<int>(m_themes.size()), m_streak, m_overlayActive);
+		static_cast<int>(m_themes.size()), m_streak, m_overlayActive,
+		static_cast<int>(m_precachedParticles.size()),
+		reinterpret_cast<void*>(U::Offsets.m_dwPrecacheParticleSystem),
+		reinterpret_cast<void*>(U::Offsets.m_dwDispatchParticleEffect3));
 	KFLog("status %s", message);
 	if (I::Cvars) I::Cvars->ConsolePrintf("[Necola] KillFeedback %s\n", message);
 }

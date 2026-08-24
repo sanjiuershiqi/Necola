@@ -2,7 +2,7 @@
 
 ## 安装
 
-击杀反馈使用 skeeto 的单帧图标与音效，全部来自外部 addon 包 `skeeto_killfeed.vpk`
+击杀反馈使用 skeeto 的 overlay、屏幕/世界粒子与音效，全部来自外部 addon 包 `skeeto_killfeed.vpk`
 （位于 `Necola_analysis/addons/`）：
 
 1. 把 `skeeto_killfeed.vpk` 复制到 `<L4D2>/left4dead2/addons/`，游戏会自动挂载。
@@ -19,7 +19,7 @@
 - 总开关默认关闭。
 - “普通感染者”和“特殊感染者（含 Witch）”分别控制目标类型。
 - “特感分类设置”可分别控制 Smoker、Boomer、Hunter、Spitter、Jockey、Charger、Tank 和 Witch。
-- 图标显示和音效可以独立关闭；主题选项会直接切换 VPK 中不同的图标/音效配置。
+- 图标（含粒子）和音效可以独立关闭；主题选项会直接切换 VPK 中不同的视觉/音效配置。
 - “命中提示”提供 0/1/2 三态：关闭、仅特感命中、全部命中；并可切换 SI 视觉优先、SI 音效优先。
 - 音效音量可设为 0/25/50/75/100%。
 - 普通枪械、爆头、近战、爆炸和连杀效果可以分别关闭；关闭后该类击杀不触发，也不回退普通效果。
@@ -50,6 +50,9 @@ SI 连杀计数；特感 streak 是滚动计数并按主题 `wrap` 循环，切�
 - 特感普通枪械和爆头增加 streak；近战与爆炸使用专用/普通 kill 样式，不增加也不重置 streak。
 - 图标使用 skeeto 原版 `r_screenoverlay` 路径：击杀默认显示 240ms，命中默认 110ms，主题 JSON
   可通过 `overlay_ms` 覆盖；不同 overlay 之间有 70ms 节流，到期自动执行 `r_screenoverlay off`。
+- `particle`/`particles[]` 使用 skeeto 原版 `DispatchParticleEffect` 通道；CF、Valorant 的击杀/连杀
+  是屏幕粒子，落雷、爱心、星星和 Advanced 主题按 `world=true` 在目标位置生成。进图后会预热
+  当前 SI/CI 主题粒子，避免首次击杀缺图标。
 - 初始化时按 skeeto 的 `Cmd_PlaySound` 逻辑一次性解锁 `r_screenoverlay`、`play`、`playvol`：清除
   `FCVAR_CHEAT` 并添加 `FCVAR_CLIENTCMD_CAN_EXECUTE`，因此远程服务器也能本地显示和播放。
 

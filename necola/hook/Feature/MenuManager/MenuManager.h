@@ -7,6 +7,7 @@
 #include <memory>
 #include <stack>
 #include <cmath>
+#include <cstring>
 #include <algorithm>
 #include <array>
 #include <unordered_map>
@@ -651,7 +652,7 @@ public:
 			addKillSwitch(killFeedbackMenu, "启用击杀反馈", &G::Vars.killFeedbackEnabled, true);
 			addKillSwitch(killFeedbackMenu, "普通感染者", &G::Vars.killFeedbackCommon, false);
 			addKillSwitch(killFeedbackMenu, "特殊感染者（含Witch）", &G::Vars.killFeedbackSpecial, false);
-			addKillSwitch(killFeedbackMenu, "图标显示", &G::Vars.killFeedbackIcon, true);
+			addKillSwitch(killFeedbackMenu, "视觉效果（图标/粒子）", &G::Vars.killFeedbackIcon, true);
 			addKillSwitch(killFeedbackMenu, "击杀音效", &G::Vars.killFeedbackSound, false);
 
 			auto siThemeMenu = killFeedbackMenu->addSubMenu("特感主题", "kill_si_theme", "特感主题");
@@ -666,6 +667,11 @@ public:
 				};
 				for (const auto& [label, id] : themes) {
 					siThemeMenu->addOption(label, [this, id]() {
+						if (std::strcmp(id, "off") != 0) {
+							G::Vars.killFeedbackSiDedicated = true;
+							auto hitMenu = FindMenuById("kill_hit_tip");
+							if (hitMenu) hitMenu->setSwitchStateByName("SI视觉优先", true);
+						}
 						F::KillFeedbackMgr.SetTheme("si", id);
 						RefreshKillFeedbackLabels();
 					});

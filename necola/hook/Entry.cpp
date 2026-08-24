@@ -200,9 +200,11 @@ static bool RunLoadBody()
 	{
 		char buf[256];
 		_snprintf_s(buf, sizeof(buf), _TRUNCATE,
-			"Step 3.5: Offsets check: m_dwClientMode=%p m_dwGlobalVars=%p m_dwCParticleSystemMgr=%p",
+			"Step 3.5: Offsets: ClientMode=%p GlobalVars=%p ParticleMgr=%p PrecacheParticle=%p DispatchParticle=%p",
 			(void*)U::Offsets.m_dwClientMode, (void*)U::Offsets.m_dwGlobalVars,
-			(void*)U::Offsets.m_dwCParticleSystemMgr);
+			(void*)U::Offsets.m_dwCParticleSystemMgr,
+			(void*)U::Offsets.m_dwPrecacheParticleSystem,
+			(void*)U::Offsets.m_dwDispatchParticleEffect3);
 		ELog(buf);
 	}
 	ELog("Step 3.6: dereferencing required GlobalVars offset");

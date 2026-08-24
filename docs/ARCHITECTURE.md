@@ -212,9 +212,11 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 `skeeto_killfeed.vpk` 的 `skeeto/skeeto_*.json` 加载，候选内部按
 `hit -> streak/kill -> melee -> headshot` 和 priority 覆盖；SI/CI 候选再按 `si_dedicated` 选视觉、
 按 `si_sound` 选标量音效。渲染忠实使用 skeeto 的 `r_screenoverlay` 命令、70ms 节流和到期泵
-（kill 240ms、hit 110ms、主题可覆盖 duration）；音效通过解锁后的 `playvol` 输出。
+（kill 240ms、hit 110ms、主题可覆盖 duration）；`particle`/`particles[]` 通过已验证的
+`PrecacheParticleSystem` 与 `DispatchParticleEffect` pattern 预热和派发，`world=true` 使用事件目标坐标，
+坐标缺失时回退实体原点或本地 `bullet_impact`。音效通过解锁后的 `playvol` 输出。
 `r_screenoverlay/play/playvol` 一次性清除 `FCVAR_CHEAT` 并添加
-`FCVAR_CLIENTCMD_CAN_EXECUTE`，不使用粒子。
+`FCVAR_CLIENTCMD_CAN_EXECUTE`。
 
 ## 八、配置与日志
 
