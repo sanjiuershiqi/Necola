@@ -633,7 +633,7 @@ public:
 			}
 		}
 
-		auto killFeedbackMenu = rootMenu->addSubMenu("击杀反馈 [关]", "kill_feedback", "击杀反馈");
+		auto killFeedbackMenu = rootMenu->addSubMenu("主题反馈 [关]", "kill_feedback", "主题反馈");
 		registerMenu(killFeedbackMenu);
 		if (killFeedbackMenu) {
 			auto addKillSwitch = [this](const std::shared_ptr<MenuNode>& menu, const char* label,
@@ -649,7 +649,7 @@ public:
 				});
 			};
 
-			addKillSwitch(killFeedbackMenu, "启用击杀反馈", &G::Vars.killFeedbackEnabled, true);
+			addKillSwitch(killFeedbackMenu, "启用击杀提示", &G::Vars.killFeedbackEnabled, true);
 			addKillSwitch(killFeedbackMenu, "普通感染者", &G::Vars.killFeedbackCommon, false);
 			addKillSwitch(killFeedbackMenu, "特殊感染者（含Witch）", &G::Vars.killFeedbackSpecial, false);
 			addKillSwitch(killFeedbackMenu, "视觉效果（图标/粒子）", &G::Vars.killFeedbackIcon, true);
@@ -696,7 +696,7 @@ public:
 				}
 			}
 
-			auto hitTipMenu = killFeedbackMenu->addSubMenu("命中提示", "kill_hit_tip", "命中提示");
+			auto hitTipMenu = killFeedbackMenu->addSubMenu("主题命中效果", "kill_hit_tip", "主题命中效果（独立于伤害数字）");
 			registerMenu(hitTipMenu);
 			if (hitTipMenu) {
 				hitTipMenu->addOption("关闭命中提示", [this]() {
@@ -769,18 +769,19 @@ public:
 			}
 		}
 
-		auto hitFeedbackMenu = rootMenu->addSubMenu("命中反馈 [关]", "hit_feedback", "命中反馈");
+		auto hitFeedbackMenu = rootMenu->addSubMenu("伤害数字与准星 [关]", "hit_feedback", "伤害数字与准星");
 		registerMenu(hitFeedbackMenu);
 		if (hitFeedbackMenu) {
 			auto addHitSwitch = [this](const std::shared_ptr<MenuNode>& menu, const char* label,
 				bool* setting) {
 				menu->addSwitch(label, *setting, [this, setting](bool state) {
 					*setting = state;
+					if (!state && setting == &G::Vars.hitFeedbackEnabled) F::HitFeedbackMgr.Reset();
 					F::HitFeedbackMgr.SaveConfig();
 					RefreshRootLabels();
 				});
 			};
-			addHitSwitch(hitFeedbackMenu, "启用命中反馈", &G::Vars.hitFeedbackEnabled);
+			addHitSwitch(hitFeedbackMenu, "启用伤害数字与准星", &G::Vars.hitFeedbackEnabled);
 			addHitSwitch(hitFeedbackMenu, "伤害数字", &G::Vars.hitFeedbackNumbers);
 			addHitSwitch(hitFeedbackMenu, "命中标记", &G::Vars.hitFeedbackHitMarker);
 			addHitSwitch(hitFeedbackMenu, "普通感染者伤害数字", &G::Vars.hitFeedbackCommon);
@@ -854,20 +855,21 @@ public:
 			(G::Vars.enableAdsSupport ? "开]" : "关]"));
 		rootMenu->updateSubMenuItemName("seq", std::string("序列修正 [") +
 			(G::Vars.animSequenceModify ? "开]" : "关]"));
-		rootMenu->updateSubMenuItemName("kill_feedback", std::string("击杀反馈 [") +
-			(G::Vars.killFeedbackEnabled ? "开]" : "关]"));
-		rootMenu->updateSubMenuItemName("hit_feedback", std::string("命中反馈 [") +
+		rootMenu->updateSubMenuItemName("kill_feedback", std::string("主题反馈 [") +
+			(G::Vars.killFeedbackEnabled || G::Vars.killFeedbackHitMode > 0 ? "开]" : "关]"));
+		rootMenu->updateSubMenuItemName("hit_feedback", std::string("伤害数字与准星 [") +
 			(G::Vars.hitFeedbackEnabled ? "开]" : "关]"));
 	}
 
 	void RefreshKillFeedbackLabels() {
+		RefreshRootLabels();
 		auto menu = FindMenuById("kill_feedback");
 		if (!menu) return;
 		menu->updateSubMenuItemName("kill_si_theme", std::string("特感主题 [") +
 			F::KillFeedbackMgr.SelectedTheme("si") + "]");
 		menu->updateSubMenuItemName("kill_ci_theme", std::string("普感主题 [") +
 			F::KillFeedbackMgr.SelectedTheme("ci") + "]");
-		menu->updateSubMenuItemName("kill_hit_tip", std::string("命中提示 [") +
+		menu->updateSubMenuItemName("kill_hit_tip", std::string("主题命中效果 [") +
 			(G::Vars.killFeedbackHitMode == 0 ? "关]" :
 				(G::Vars.killFeedbackHitMode == 1 ? "仅SI命中]" : "全部命中]")));
 		menu->updateSubMenuItemName("kill_sound_volume", std::string("音效音量 [") +

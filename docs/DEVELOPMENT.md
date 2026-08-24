@@ -124,6 +124,20 @@ necola\FeatureConfig.json
 }
 ```
 
+独立伤害数字/准星配置为：
+
+```json
+"HitFeedback": {
+    "Enabled": false,
+    "DamageNumbers": true,
+    "HitMarker": true,
+    "CommonHits": false
+}
+```
+
+`KillFeedback.Enabled` 只控制击杀提示；`KillFeedback.HitMode` 独立控制主题命中。`HitFeedback.Enabled`
+只控制 VGUI 伤害数字和准星标记，三者不能互相作为总开关。
+
 `Anchor` 为 `0=左侧`、`1=居中`、`2=右侧`，透明度限制在 `160..245`。
 
 ### 3.3 按键绑定

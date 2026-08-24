@@ -4,6 +4,7 @@
 #include "../../Feature/BodygroupFix/BodygroupFix.h"
 #include "../../Feature/CampaignTimer/CampaignTimer.h"
 #include "../../Feature/KillFeedback/KillFeedback.h"
+#include "../../Feature/HitFeedback/HitFeedback.h"
 
 #include <spdlog/spdlog.h>
 
@@ -34,6 +35,7 @@ void __fastcall BaseClient::LevelShutdown::Detour(void* ecx, void* edx)
 {
 	F::CampaignTimerMgr.OnLevelShutdown();
 	F::KillFeedbackMgr.Reset();
+	F::HitFeedbackMgr.Reset();
 	Table.Original<FN>(Index)(ecx, edx);
 }
 
@@ -73,6 +75,9 @@ int __fastcall BaseClient::IN_KeyEvent::Detour(void* ecx, void* edx, int eventco
 			if (eventcode == 1) F::MenuMgr.ProcessKey(0);
 			return 0;
 		}
+	}
+	if (eventcode == 1 && pszCurrentBinding && std::strcmp(pszCurrentBinding, "+attack") == 0) {
+		F::HitFeedbackMgr.ArmLocalAttack();
 	}
 
 	// ADS zoom / mixed toggle

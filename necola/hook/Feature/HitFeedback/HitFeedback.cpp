@@ -1,13 +1,18 @@
 #include "HitFeedback.h"
 
 #include "../../../sdk/utils/FeatureConfigManager.h"
+#include "../../../sdk/l4d2/includes/dt_recv.h"
+#include "../../../sdk/l4d2/interfaces/BaseClientDLL.h"
 #include "../../Vars.h"
+#include "../KillFeedback/KillFeedback.h"
 
 #include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
+#include <utility>
+#include <vector>
 
 namespace {
 constexpr float kTwoPi = 6.2831855f;
@@ -51,6 +56,32 @@ const HitColor kPalette[10] = {
 	{255, 255, 255}, {255, 236, 120}, {255, 208, 0},   {255, 160, 0},  {255, 110, 0},
 	{255, 70, 70},   {235, 40, 40},   {170, 255, 120}, {120, 210, 255}, {215, 140, 255},
 };
+
+std::vector<std::pair<RecvProp*, RecvVarProxyFn>> g_healthProxies;
+
+RecvProp* FindRecvPropRecursive(RecvTable* table, const char* name, int depth = 0) {
+	if (!table || !name || depth > 16) return nullptr;
+	for (int i = 0; i < table->m_nProps; ++i) {
+		RecvProp* prop = &table->m_pProps[i];
+		if (prop->m_pVarName && std::strcmp(prop->m_pVarName, name) == 0) return prop;
+		if (RecvProp* nested = FindRecvPropRecursive(prop->GetDataTable(), name, depth + 1)) return nested;
+	}
+	return nullptr;
+}
+
+void HealthProxy(const CRecvProxyData* data, void* structure, void* output) {
+	int oldHealth = output ? *static_cast<int*>(output) : 0;
+	RecvVarProxyFn original = nullptr;
+	for (const auto& [prop, proxy] : g_healthProxies) {
+		if (data && data->m_pRecvProp == prop) {
+			original = proxy;
+			break;
+		}
+	}
+	if (original) original(data, structure, output);
+	else if (output && data) *static_cast<int*>(output) = data->m_Value.m_Int;
+	if (data) F::HitFeedbackMgr.OnHealthChanged(data->m_ObjectID, oldHealth, data->m_Value.m_Int);
+}
 }
 
 bool HitFeedback::IsWitchEntity(int entIndex) const {
@@ -72,6 +103,101 @@ bool HitFeedback::IsSpecialEntity(int entIndex) const {
 
 void HitFeedback::TriggerHitMarker() {
 	m_hitMarkerUntil = NowTick() + kHitMarkerDurationMs;
+}
+
+bool HitFeedback::InstallHealthProxy() {
+	if (m_healthProxyInstalled) return true;
+	if (!I::BaseClient) return false;
+	for (ClientClass* clientClass = I::BaseClient->GetAllClasses(); clientClass;
+		clientClass = clientClass->m_pNext) {
+		if (!clientClass->m_pNetworkName ||
+			(std::strcmp(clientClass->m_pNetworkName, "CBasePlayer") != 0 &&
+			 std::strcmp(clientClass->m_pNetworkName, "CTerrorPlayer") != 0)) continue;
+		RecvProp* prop = FindRecvPropRecursive(clientClass->m_pRecvTable, "m_iHealth");
+		if (!prop || !prop->GetProxyFn() || prop->GetProxyFn() == HealthProxy) continue;
+		bool duplicate = false;
+		for (const auto& installed : g_healthProxies) {
+			if (installed.first == prop) {
+				duplicate = true;
+				break;
+			}
+		}
+		if (duplicate) continue;
+		g_healthProxies.emplace_back(prop, prop->GetProxyFn());
+		prop->SetProxyFn(HealthProxy);
+	}
+	m_healthProxyInstalled = !g_healthProxies.empty();
+	return m_healthProxyInstalled;
+}
+
+void HitFeedback::UnhookHealthProxy() {
+	for (const auto& [prop, original] : g_healthProxies) {
+		if (prop && prop->GetProxyFn() == HealthProxy) prop->SetProxyFn(original);
+	}
+	g_healthProxies.clear();
+	m_healthProxyInstalled = false;
+}
+
+bool HitFeedback::IsLocalHitCorrelated(int entIndex) const {
+	if (entIndex <= 0 || !I::EngineClient || !I::ClientEntityList) return false;
+	const std::uint32_t now = NowTick();
+	const bool recentImpact = now - m_lastImpactTick <= 180;
+	const bool recentAttack = now - m_lastAttackTick <= 400;
+	if (!recentImpact && !recentAttack) return false;
+	auto* localEntity = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer());
+	auto* local = localEntity ? localEntity->As<C_TerrorPlayer*>() : nullptr;
+	auto* targetEntity = I::ClientEntityList->GetClientEntity(entIndex);
+	auto* target = targetEntity ? targetEntity->As<C_TerrorPlayer*>() : nullptr;
+	if (!local || !target || target->GetTeamNumber() != 3) return false;
+	const Vector eye = local->m_vecOrigin() + local->m_vecViewOffset();
+	Vector targetPoint = target->m_vecOrigin();
+	targetPoint.z += 40.0f;
+	Vector direction = targetPoint - eye;
+	const float distance = direction.Normalize();
+	if (distance > (recentImpact ? 5000.0f : 110.0f)) return false;
+	Vector viewAngles;
+	Vector forward;
+	I::EngineClient->GetViewAngles(viewAngles);
+	U::Math.AngleVectors(viewAngles, &forward);
+	forward.Normalize();
+	return forward.Dot(direction) >= (recentImpact ? 0.93f : 0.90f);
+}
+
+void HitFeedback::ProcessSpecialHit(int entIndex, int damage, const Vector& origin, float headZ,
+	bool fromProxy) {
+	if (entIndex <= 0 || damage <= 0) return;
+	const std::uint32_t now = NowTick();
+	if (entIndex == m_lastSpecialHitEntity && damage == m_lastSpecialHitDamage &&
+		fromProxy != m_lastSpecialHitFromProxy && now - m_lastSpecialHitTick <= 60) return;
+	m_lastSpecialHitEntity = entIndex;
+	m_lastSpecialHitDamage = damage;
+	m_lastSpecialHitFromProxy = fromProxy;
+	m_lastSpecialHitTick = now;
+	if (G::Vars.hitFeedbackEnabled) {
+		if (G::Vars.hitFeedbackNumbers) {
+			RecordDamage(entIndex, damage, origin.x, origin.y, origin.z, headZ);
+		}
+		if (G::Vars.hitFeedbackHitMarker) TriggerHitMarker();
+	}
+	F::KillFeedbackMgr.OnSpecialHealthDrop(origin);
+}
+
+void HitFeedback::OnHealthChanged(int entIndex, int oldHealth, int newHealth) {
+	if (oldHealth <= 0 || newHealth >= oldHealth || oldHealth > 100000 || newHealth < 0 ||
+		newHealth > 100000) return;
+	if (!G::Vars.hitFeedbackEnabled && G::Vars.killFeedbackHitMode == 0) return;
+	if (!IsLocalHitCorrelated(entIndex) || !I::ClientEntityList) return;
+	auto* entity = I::ClientEntityList->GetClientEntity(entIndex);
+	auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
+	if (!player) return;
+	const Vector origin = player->m_vecOrigin();
+	float headZ = player->m_vecViewOffset().z;
+	if (headZ < 20.0f || headZ > 120.0f) headZ = 50.0f;
+	ProcessSpecialHit(entIndex, oldHealth - newHealth, origin, headZ + 2.0f, true);
+}
+
+void HitFeedback::ArmLocalAttack() {
+	m_lastAttackTick = NowTick();
 }
 
 void HitFeedback::RecordDamage(int entIndex, int damage, float x, float y, float z, float headZ) {
@@ -105,6 +231,7 @@ void HitFeedback::RecordDamage(int entIndex, int damage, float x, float y, float
 	}
 
 	DamageSlot& slot = m_slots[slotIdx];
+	slot.used = true;
 	slot.entIndex = entIndex;
 	slot.damage = damage > 9999 ? 9999 : damage;
 	slot.worldX = x;
@@ -145,28 +272,43 @@ void HitFeedbackListener::FireGameEvent(IGameEvent* event) {
 bool HitFeedback::InitListeners() {
 	if (!I::GameEventManager) return false;
 	static const char* const kEvents[] = {
-		"player_hurt", "infected_hurt",
-		"round_start", "mission_lost", "map_transition",
+		"player_hurt", "infected_hurt", "bullet_impact", "weapon_fire",
+		"round_start", "round_end", "mission_lost", "map_transition",
 	};
 	bool allOk = true;
+	bool anyOk = false;
 	for (const char* name : kEvents) {
 		const bool added = I::GameEventManager->AddListener(&m_listener, name, false);
 		allOk = allOk && added;
+		anyOk = anyOk || added;
 	}
-	m_listenersRegistered = true;
+	m_listenersRegistered = anyOk;
 	return allOk;
 }
 
 void HitFeedback::OnGameEvent(IGameEvent* event) {
-	if (!event || !G::Vars.hitFeedbackEnabled) return;
+	if (!event) return;
 	const char* name = event->GetName();
 	if (!name) return;
 
-	if (std::strcmp(name, "round_start") == 0 || std::strcmp(name, "mission_lost") == 0 ||
+	if (std::strcmp(name, "round_start") == 0 || std::strcmp(name, "round_end") == 0 ||
+		std::strcmp(name, "mission_lost") == 0 ||
 		std::strcmp(name, "map_transition") == 0) {
 		Reset();
 		return;
 	}
+	if (std::strcmp(name, "bullet_impact") == 0) {
+		if (IsLocalAttacker(event, "userid")) {
+			m_lastImpactTick = NowTick();
+			m_lastAttackTick = m_lastImpactTick;
+		}
+		return;
+	}
+	if (std::strcmp(name, "weapon_fire") == 0) {
+		if (IsLocalAttacker(event, "userid")) m_lastAttackTick = NowTick();
+		return;
+	}
+	if (!G::Vars.hitFeedbackEnabled && G::Vars.killFeedbackHitMode == 0) return;
 
 	if (!I::EngineClient || !I::ClientEntityList) return;
 
@@ -182,24 +324,29 @@ void HitFeedback::OnGameEvent(IGameEvent* event) {
 		const Vector view = player->m_vecViewOffset();
 		if (view.z > 20.0f && view.z < 120.0f) headZ = view.z + 2.0f;
 		const bool special = IsSpecialEntity(victimEnt);
-		if (special || G::Vars.hitFeedbackCommon) {
-			RecordDamage(victimEnt, event->GetInt("dmg_health", 0),
-				origin.x, origin.y, origin.z, headZ);
-		}
-		if (special && G::Vars.hitFeedbackHitMarker) TriggerHitMarker();
+		if (special) ProcessSpecialHit(victimEnt, event->GetInt("dmg_health", 0), origin, headZ, false);
 		return;
 	}
 
 	if (std::strcmp(name, "infected_hurt") == 0) {
 		if (!IsLocalAttacker(event, "attacker")) return;
 		const int entIndex = event->GetInt("entityid", 0);
-		if (!IsWitchEntity(entIndex)) return;
 		auto* entity = I::ClientEntityList->GetClientEntity(entIndex);
 		if (!entity) return;
 		const Vector& origin = entity->GetAbsOrigin();
-		RecordDamage(entIndex, event->GetInt("amount", 0),
-			origin.x, origin.y, origin.z, 50.0f);
-		if (G::Vars.hitFeedbackHitMarker) TriggerHitMarker();
+		const bool witch = IsWitchEntity(entIndex);
+		const int damage = event->GetInt("amount", 0);
+		if (witch) {
+			if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackNumbers) {
+				RecordDamage(entIndex, damage, origin.x, origin.y, origin.z, 50.0f);
+			}
+			if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackHitMarker && damage > 0) {
+				TriggerHitMarker();
+			}
+		} else if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackCommon &&
+			G::Vars.hitFeedbackNumbers) {
+			RecordDamage(entIndex, damage, origin.x, origin.y, origin.z, 50.0f);
+		}
 	}
 }
 
@@ -310,9 +457,16 @@ void HitFeedback::Draw() {
 void HitFeedback::Reset() {
 	for (int i = 0; i < kMaxSlots; ++i) m_slots[i] = DamageSlot{};
 	m_hitMarkerUntil = 0;
+	m_lastAttackTick = 0;
+	m_lastImpactTick = 0;
+	m_lastSpecialHitTick = 0;
+	m_lastSpecialHitEntity = 0;
+	m_lastSpecialHitDamage = 0;
+	m_lastSpecialHitFromProxy = false;
 }
 
 void HitFeedback::Shutdown() {
+	UnhookHealthProxy();
 	if (m_listenersRegistered && I::GameEventManager) {
 		I::GameEventManager->RemoveListener(&m_listener);
 		m_listenersRegistered = false;

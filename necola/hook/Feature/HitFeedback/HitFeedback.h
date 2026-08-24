@@ -18,11 +18,16 @@ public:
 class HitFeedback {
 public:
 	bool InitListeners();
+	bool InstallHealthProxy();
+	void UnhookHealthProxy();
+	bool HasHealthProxy() const { return m_healthProxyInstalled; }
 	void LoadConfig(const nlohmann::json& doc);
 	void SaveConfig(nlohmann::json& doc) const;
 	void SaveConfig() const;
 
 	void OnGameEvent(IGameEvent* event);
+	void OnHealthChanged(int entIndex, int oldHealth, int newHealth);
+	void ArmLocalAttack();
 	void Draw();
 	void Reset();
 	void Shutdown();
@@ -48,6 +53,8 @@ private:
 	};
 
 	void RecordDamage(int entIndex, int damage, float x, float y, float z, float headZ);
+	void ProcessSpecialHit(int entIndex, int damage, const Vector& origin, float headZ, bool fromProxy);
+	bool IsLocalHitCorrelated(int entIndex) const;
 	bool IsWitchEntity(int entIndex) const;
 	bool IsSpecialEntity(int entIndex) const;
 	void TriggerHitMarker();
@@ -59,6 +66,13 @@ private:
 	int m_damageFontSize = 0;
 	HitFeedbackListener m_listener;
 	bool m_listenersRegistered = false;
+	bool m_healthProxyInstalled = false;
+	std::uint32_t m_lastAttackTick = 0;
+	std::uint32_t m_lastImpactTick = 0;
+	std::uint32_t m_lastSpecialHitTick = 0;
+	int m_lastSpecialHitEntity = 0;
+	int m_lastSpecialHitDamage = 0;
+	bool m_lastSpecialHitFromProxy = false;
 };
 
 namespace F { inline HitFeedback HitFeedbackMgr; }

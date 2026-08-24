@@ -2,6 +2,7 @@
 
 #include "../../../sdk/utils/FeatureConfigManager.h"
 #include "../../../sdk/l4d2/interfaces/IConVar.h"
+#include "../../../sdk/l4d2/interfaces/EngineTrace.h"
 #include "../../Vars.h"
 
 #include <algorithm>
@@ -14,12 +15,13 @@ constexpr int KF_DMG_BLAST = 1 << 6;
 constexpr int KF_DMG_SLASH = 1 << 2;
 constexpr int KF_DMG_CLUB = 1 << 7;
 constexpr int KF_HITGROUP_HEAD = 1;
-constexpr float DAMAGE_RECORD_LIFETIME = 30.0f;
+constexpr float DAMAGE_RECORD_LIFETIME = 1.0f;
 constexpr float SPECIAL_EVENT_GRACE = 0.15f;
 constexpr int OVERLAY_THROTTLE_MS = 70;
 constexpr int KILL_DURATION_MS = 240;
 constexpr int HIT_DURATION_MS = 110;
 constexpr uint32_t HITARM_WINDOW_MS = 400;
+constexpr unsigned int COMMON_HIT_TRACE_MASK = 1174421507u;
 
 float SimulationTime() {
 	return I::GlobalVars ? I::GlobalVars->curtime : 0.0f;
@@ -38,8 +40,26 @@ int LocalActiveWeaponId() {
 	return weapon ? weapon->GetWeaponID() : -1;
 }
 
-bool Contains(const char* value, const char* needle) {
-	return value && needle && std::strstr(value, needle) != nullptr;
+bool ContainsNoCase(const char* value, const char* needle) {
+	if (!value || !needle) return false;
+	const std::size_t length = std::strlen(needle);
+	for (std::size_t i = 0; value[i]; ++i) {
+		if (_strnicmp(value + i, needle, length) == 0) return true;
+	}
+	return false;
+}
+
+bool IsMeleeWeaponName(const char* weapon) {
+	if (!weapon || !*weapon) return false;
+	static const char* const names[] = {
+		"melee", "chainsaw", "katana", "fireaxe", "machete", "crowbar",
+		"cricket_bat", "baseball_bat", "electric_guitar", "frying_pan",
+		"golfclub", "pitchfork", "shovel", "tonfa", "knife", "riotshield",
+	};
+	for (const char* name : names) {
+		if (ContainsNoCase(weapon, name)) return true;
+	}
+	return false;
 }
 
 bool IsExplosionWeaponId(int weaponId) {
@@ -47,6 +67,15 @@ bool IsExplosionWeaponId(int weaponId) {
 		weaponId == WEAPON_OXYGEN_TANK || weaponId == WEAPON_GRENADE_LAUNCHER ||
 		weaponId == WEAPON_FIREWORK;
 }
+
+class LocalHitTraceFilter final : public ITraceFilter {
+public:
+	explicit LocalHitTraceFilter(C_BaseEntity* local) : m_local(local) {}
+	bool ShouldHitEntity(C_BaseEntity* entity, int) override { return entity && entity != m_local; }
+	TraceType_t GetTraceType() const override { return TRACE_EVERYTHING; }
+private:
+	C_BaseEntity* m_local = nullptr;
+};
 
 std::string KillFeedbackLogPath() {
 	char exePath[MAX_PATH] = {};
@@ -261,16 +290,21 @@ bool KillFeedback::HitCheck(const KillTheme& theme, const char* eventName, bool 
 	if (std::strcmp(eventName, "hit") == 0) {
 		consider(theme.hit);
 	} else {
-		if (theme.streakEnabled && theme.streakWrap > 0 && streak > 0) {
+		bool initialSelected = false;
+		if (theme.streakEnabled && streak > 0) {
 			int index = streak > 0 ? streak : 1;
-			while (index > theme.streakWrap) index -= theme.streakWrap;
+			if (theme.streakWrap > 0) {
+				while (index > theme.streakWrap) index -= theme.streakWrap;
+			}
 			if (index >= 1 && index <= 10 && theme.streak[index].enabled) {
 				consider(theme.streak[index]);
+				initialSelected = true;
 			} else if (theme.streakDefault.enabled) {
 				consider(theme.streakDefault);
+				initialSelected = true;
 			}
 		}
-		consider(theme.kill);
+		if (!initialSelected) consider(theme.kill);
 		if (melee) consider(theme.melee);
 		if (headshot) consider(theme.headshot);
 	}
@@ -386,6 +420,34 @@ void KillFeedback::CaptureFeedbackPosition(IGameEvent* event, int entityIndex) {
 	if (m_lastImpactPosition.valid) m_feedbackPosition = m_lastImpactPosition;
 }
 
+void KillFeedback::PumpCommonHitTrace() {
+	if (!m_pendingImpactPosition.valid || GetTickCount() - m_pendingImpactTick < 45) return;
+	const FeedbackPosition impact = m_pendingImpactPosition;
+	m_pendingImpactPosition = {};
+	if (G::Vars.killFeedbackHitMode != 2 || !I::EngineTrace || !I::EngineClient ||
+		!I::ClientEntityList || GetTickCount() - m_lastCommonTraceTick < 40) return;
+	m_lastCommonTraceTick = GetTickCount();
+	auto* localEntity = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer());
+	auto* local = localEntity ? localEntity->As<C_TerrorPlayer*>() : nullptr;
+	if (!local) return;
+	const Vector start = local->m_vecOrigin() + local->m_vecViewOffset();
+	Vector direction = impact.value - start;
+	if (direction.Normalize() <= 0.0f) return;
+	const Vector end = impact.value + direction * 2.0f;
+	Ray_t ray(start, end);
+	trace_t trace = {};
+	LocalHitTraceFilter filter(localEntity->As<C_BaseEntity*>());
+	I::EngineTrace->TraceRay(ray, COMMON_HIT_TRACE_MASK, &filter, &trace);
+	if (!trace.m_pEnt) return;
+	auto* clientClass = trace.m_pEnt->GetClientClass();
+	const char* className = clientClass ? clientClass->m_pNetworkName : nullptr;
+	if (!className || (!ContainsNoCase(className, "infected") &&
+		!ContainsNoCase(className, "witch"))) return;
+	m_feedbackPosition.value = impact.value;
+	m_feedbackPosition.valid = true;
+	ResolveCombinedFeedback(false, false, false, 0, false, true);
+}
+
 void KillFeedback::RenderScreenOverlay(const KillStyle& style, int defaultDuration,
 	bool allowRepeat) {
 	if (!style.enabled) return;
@@ -414,13 +476,13 @@ void KillFeedback::PumpOverlay() {
 	if (!m_overlayActive) return;
 	if (GetTickCount() < m_fxPumpTick) return;
 	m_overlayActive = false;
-	if (I::EngineClient) I::EngineClient->ClientCmd("r_screenoverlay off");
+	if (I::EngineClient) I::EngineClient->ClientCmd("r_screenoverlay \"\"");
 	KFLog("overlay cleared");
 }
 
 bool KillFeedback::ResolveCombinedFeedback(bool kill, bool headshot, bool melee,
 	int streak, bool allowSi, bool allowCi) {
-	if (kill ? !G::Vars.killFeedbackEnabled : !G::Vars.hitFeedbackEnabled) return false;
+	if (kill && !G::Vars.killFeedbackEnabled) return false;
 	if (!G::Vars.killFeedbackSound && !G::Vars.killFeedbackIcon) return false;
 	if (!kill && G::Vars.killFeedbackHitMode == 0) return false;
 	if (!kill && G::Vars.killFeedbackHitMode == 1 && !allowSi) return false;
@@ -481,11 +543,19 @@ bool KillFeedback::ResolveCombinedFeedback(bool kill, bool headshot, bool melee,
 	return true;
 }
 
+void KillFeedback::OnSpecialHealthDrop(const Vector& position) {
+	if (G::Vars.killFeedbackHitMode == 0) return;
+	if (m_pendingSpecialHits.size() >= 32) m_pendingSpecialHits.erase(m_pendingSpecialHits.begin());
+	m_pendingSpecialHits.push_back({position, true});
+}
+
 bool KillFeedback::IsLocalAttacker(IGameEvent* event, const char* field) const {
 	if (!event || !I::EngineClient) return false;
+	const int local = I::EngineClient->GetLocalPlayer();
+	if (local <= 0) return false;
 	const int attackerUserId = event->GetInt(field, 0);
-	return attackerUserId > 0 &&
-		I::EngineClient->GetPlayerForUserID(attackerUserId) == I::EngineClient->GetLocalPlayer();
+	if (attackerUserId > 0 && I::EngineClient->GetPlayerForUserID(attackerUserId) == local) return true;
+	return std::strcmp(field, "attacker") == 0 && event->GetInt("attackerentid", 0) == local;
 }
 
 KillFeedback::SpecialVictim KillFeedback::GetSpecialVictim(IGameEvent* event) const {
@@ -499,6 +569,16 @@ KillFeedback::SpecialVictim KillFeedback::GetSpecialVictim(IGameEvent* event) co
 			if (liveVictim != SpecialVictim::Unknown) return liveVictim;
 		}
 	}
+	const int entityId = event->GetInt("entityid", 0);
+	if (entityId > 0 && I::ClientEntityList) {
+		auto* entity = I::ClientEntityList->GetClientEntity(entityId);
+		auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
+		if (player) {
+			const SpecialVictim entityVictim = SpecialVictimFromZombieClass(player->m_zombieClass());
+			if (entityVictim != SpecialVictim::Unknown) return entityVictim;
+		}
+	}
+	if (IsWitchEntity(entityId)) return SpecialVictim::Witch;
 	const int victimUserId = event->GetInt("userid", 0);
 	const auto cached = m_specialVictims.find(victimUserId);
 	if (cached != m_specialVictims.end()) return cached->second;
@@ -515,6 +595,7 @@ KillFeedback::SpecialVictim KillFeedback::GetSpecialVictim(IGameEvent* event) co
 	if (_stricmp(name, "Jockey") == 0) return SpecialVictim::Jockey;
 	if (_stricmp(name, "Charger") == 0) return SpecialVictim::Charger;
 	if (_stricmp(name, "Tank") == 0) return SpecialVictim::Tank;
+	if (_stricmp(name, "Witch") == 0) return SpecialVictim::Witch;
 	return SpecialVictim::Unknown;
 }
 
@@ -532,7 +613,9 @@ bool KillFeedback::IsSpecialVictimEnabled(SpecialVictim victim) const {
 	}
 }
 
-void KillFeedback::HandleSpecialKill(SpecialVictim victim, KillMethod method, int victimUserId, const char* source) {
+void KillFeedback::HandleSpecialKill(SpecialVictim victim, KillClassification classification,
+	int victimUserId, const char* source) {
+	if (!G::Vars.killFeedbackEnabled) return;
 	const float now = SimulationTime();
 	if (victimUserId > 0 && victimUserId == m_lastSpecialVictimUserId &&
 		now - m_lastSpecialKillTime <= 0.5f) {
@@ -546,27 +629,28 @@ void KillFeedback::HandleSpecialKill(SpecialVictim victim, KillMethod method, in
 			IsSpecialVictimEnabled(victim));
 		return;
 	}
-	if (!IsMethodEnabled(method)) {
+	if (!IsClassificationEnabled(classification)) {
 		KFLog("special ignored source=%s victim=%s method=%s disabled", source,
-			SpecialVictimName(victim), MethodName(method));
+			SpecialVictimName(victim), ClassificationName(classification));
 		return;
 	}
 	m_lastSpecialVictimUserId = victimUserId;
 	m_lastSpecialKillTime = now;
 	KFLog("special accepted source=%s victim=%s userid=%d method=%s", source,
-		SpecialVictimName(victim), victimUserId, MethodName(method));
-	Trigger(true, method, 0);
+		SpecialVictimName(victim), victimUserId, ClassificationName(classification));
+	Trigger(true, classification, 0);
 }
 
-void KillFeedback::QueueSpecialKill(SpecialVictim victim, KillMethod method, int victimUserId, const char* source) {
+void KillFeedback::QueueSpecialKill(SpecialVictim victim, KillClassification classification,
+	int victimUserId, const char* source) {
 	if (victimUserId <= 0) {
-		HandleSpecialKill(victim, method, victimUserId, source);
+		HandleSpecialKill(victim, classification, victimUserId, source);
 		return;
 	}
-	m_pendingSpecialKills[victimUserId] = {victim, method, PresentationTime(), source,
+	m_pendingSpecialKills[victimUserId] = {victim, classification, PresentationTime(), source,
 		m_feedbackPosition.value, m_feedbackPosition.valid};
 	KFLog("special queued source=%s victim=%s userid=%d method=%s", source,
-		SpecialVictimName(victim), victimUserId, MethodName(method));
+		SpecialVictimName(victim), victimUserId, ClassificationName(classification));
 }
 
 void KillFeedback::FlushPendingSpecialKills() {
@@ -581,7 +665,7 @@ void KillFeedback::FlushPendingSpecialKills() {
 		it = m_pendingSpecialKills.erase(it);
 		m_feedbackPosition.value = pending.position;
 		m_feedbackPosition.valid = pending.positionValid;
-		HandleSpecialKill(pending.victim, pending.method, victimUserId, pending.source);
+		HandleSpecialKill(pending.victim, pending.classification, victimUserId, pending.source);
 		m_playerDamage.erase(victimUserId);
 		m_specialVictims.erase(victimUserId);
 	}
@@ -610,74 +694,63 @@ void KillFeedback::RefreshSpecialVictims() {
 	}
 }
 
-KillFeedback::KillMethod KillFeedback::ClassifyCommonKill(IGameEvent* event) const {
+KillFeedback::KillClassification KillFeedback::ClassifyCommonKill(IGameEvent* event) const {
+	KillClassification result;
 	const int weaponId = event->GetInt("weapon_id", 0);
-	if (event->GetBool("blast", false) || IsExplosionWeaponId(weaponId)) {
-		return KillMethod::Explosion;
-	}
-	if (weaponId == WEAPON_MELEE || weaponId == WEAPON_CHAINSAW) return KillMethod::Melee;
-	if (event->GetBool("headshot", false)) return KillMethod::Headshot;
-	const auto tracked = m_infectedDamage.find(event->GetInt("infected_id", 0));
+	result.explosion = event->GetBool("blast", false) || IsExplosionWeaponId(weaponId);
+	result.melee = weaponId == WEAPON_MELEE || weaponId == WEAPON_CHAINSAW;
+	result.headshot = event->GetBool("headshot", false) ||
+		event->GetInt("hitgroup", 0) == KF_HITGROUP_HEAD;
+	int infectedId = event->GetInt("infected_id", 0);
+	if (infectedId <= 0) infectedId = event->GetInt("entityid", 0);
+	const auto tracked = m_infectedDamage.find(infectedId);
 	if (tracked != m_infectedDamage.end() && SimulationTime() - tracked->second.time <= DAMAGE_RECORD_LIFETIME) {
-		return tracked->second.method;
+		result.headshot = result.headshot || tracked->second.classification.headshot;
+		result.melee = result.melee || tracked->second.classification.melee;
+		result.explosion = result.explosion || tracked->second.classification.explosion;
 	}
-	return KillMethod::Firearm;
+	return result;
 }
 
-KillFeedback::KillMethod KillFeedback::ClassifySpecialKill(IGameEvent* event) const {
+KillFeedback::KillClassification KillFeedback::ClassifySpecialKill(IGameEvent* event) const {
+	KillClassification result;
 	const char* weapon = event->GetString("weapon", "");
 	const int damageType = event->GetInt("type", 0);
-	if ((damageType & KF_DMG_BLAST) != 0 || Contains(weapon, "pipe_bomb") ||
-		Contains(weapon, "grenade_launcher") || Contains(weapon, "propane") ||
-		Contains(weapon, "oxygen") || Contains(weapon, "firework")) {
-		return KillMethod::Explosion;
-	}
-	if (Contains(weapon, "melee") || Contains(weapon, "chainsaw")) {
-		return KillMethod::Melee;
-	}
-	if (event->GetBool("headshot", false) || event->GetInt("hitgroup", 0) == KF_HITGROUP_HEAD) {
-		return KillMethod::Headshot;
-	}
+	result.explosion = (damageType & KF_DMG_BLAST) != 0 || ContainsNoCase(weapon, "pipe_bomb") ||
+		ContainsNoCase(weapon, "grenade_launcher") || ContainsNoCase(weapon, "propane") ||
+		ContainsNoCase(weapon, "oxygen") || ContainsNoCase(weapon, "firework");
+	result.melee = (damageType & (KF_DMG_SLASH | KF_DMG_CLUB)) != 0 || IsMeleeWeaponName(weapon);
+	result.headshot = event->GetBool("headshot", false) ||
+		event->GetInt("hitgroup", 0) == KF_HITGROUP_HEAD;
 	if (!weapon || weapon[0] == '\0') {
 		const int activeWeaponId = LocalActiveWeaponId();
-		if (IsExplosionWeaponId(activeWeaponId)) return KillMethod::Explosion;
-		if (activeWeaponId == WEAPON_MELEE || activeWeaponId == WEAPON_CHAINSAW) return KillMethod::Melee;
+		result.explosion = result.explosion || IsExplosionWeaponId(activeWeaponId);
+		result.melee = result.melee || activeWeaponId == WEAPON_MELEE || activeWeaponId == WEAPON_CHAINSAW;
 	}
-	return KillMethod::Firearm;
+	return result;
 }
 
-KillFeedback::KillMethod KillFeedback::ClassifyWitchKill(IGameEvent* event) const {
-	if (event->GetBool("melee_only", false)) return KillMethod::Melee;
-	const auto tracked = m_infectedDamage.find(event->GetInt("witchid", 0));
-	if (tracked != m_infectedDamage.end() && SimulationTime() - tracked->second.time <= DAMAGE_RECORD_LIFETIME) {
-		return tracked->second.method;
-	}
-	return KillMethod::Firearm;
-}
-
-KillFeedback::KillMethod KillFeedback::ClassifyTrackedDamage(IGameEvent* event) const {
+KillFeedback::KillClassification KillFeedback::ClassifyTrackedDamage(IGameEvent* event) const {
+	KillClassification result;
 	const int damageType = event->GetInt("type", 0);
-	if ((damageType & KF_DMG_BLAST) != 0) return KillMethod::Explosion;
-	if ((damageType & (KF_DMG_SLASH | KF_DMG_CLUB)) != 0) return KillMethod::Melee;
-	if (event->GetInt("hitgroup", 0) == KF_HITGROUP_HEAD) return KillMethod::Headshot;
-	return KillMethod::Firearm;
+	result.explosion = (damageType & KF_DMG_BLAST) != 0;
+	result.melee = (damageType & (KF_DMG_SLASH | KF_DMG_CLUB)) != 0;
+	result.headshot = event->GetInt("hitgroup", 0) == KF_HITGROUP_HEAD;
+	return result;
 }
 
-bool KillFeedback::IsMethodEnabled(KillMethod method) const {
-	switch (method) {
-		case KillMethod::Firearm: return G::Vars.killFeedbackFirearm;
-		case KillMethod::Headshot: return G::Vars.killFeedbackHeadshot;
-		case KillMethod::Melee: return G::Vars.killFeedbackMelee;
-		case KillMethod::Explosion: return G::Vars.killFeedbackExplosion;
-	}
-	return false;
+bool KillFeedback::IsClassificationEnabled(const KillClassification& classification) const {
+	if (classification.explosion) return G::Vars.killFeedbackExplosion;
+	if (classification.melee) return G::Vars.killFeedbackMelee;
+	if (classification.headshot) return G::Vars.killFeedbackHeadshot;
+	return G::Vars.killFeedbackFirearm;
 }
 
 bool KillFeedback::IsWitchEntity(int entityId) const {
 	if (entityId <= 0 || !I::ClientEntityList) return false;
 	auto* entity = I::ClientEntityList->GetClientEntity(entityId);
 	auto* clientClass = entity ? entity->GetClientClass() : nullptr;
-	return clientClass && Contains(clientClass->m_pNetworkName, "Witch");
+	return clientClass && ContainsNoCase(clientClass->m_pNetworkName, "witch");
 }
 
 void KillFeedback::OnGameEvent(IGameEvent* event) {
@@ -686,7 +759,8 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 	if (!name) return;
 	FlushPendingSpecialKills();
 
-	if (std::strcmp(name, "round_start") == 0 || std::strcmp(name, "mission_lost") == 0 ||
+	if (std::strcmp(name, "round_start") == 0 || std::strcmp(name, "round_end") == 0 ||
+		std::strcmp(name, "mission_lost") == 0 ||
 		std::strcmp(name, "map_transition") == 0) {
 		KFLog("state reset by event=%s", name);
 		Reset();
@@ -697,14 +771,47 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 			m_lastImpactPosition.value = Vector(event->GetFloat("x", 0.0f),
 				event->GetFloat("y", 0.0f), event->GetFloat("z", 0.0f));
 			m_lastImpactPosition.valid = true;
+			if (G::Vars.killFeedbackHitMode == 2) {
+				m_pendingImpactPosition = m_lastImpactPosition;
+				m_pendingImpactTick = GetTickCount();
+			}
 		}
 		return;
 	}
 
 	const bool killEvent = std::strcmp(name, "infected_death") == 0 ||
 		std::strcmp(name, "player_death") == 0 || std::strcmp(name, "witch_killed") == 0;
-	if (!G::Vars.killFeedbackEnabled && !G::Vars.hitFeedbackEnabled) {
+	if (!G::Vars.killFeedbackEnabled && G::Vars.killFeedbackHitMode == 0) {
 		if (killEvent) KFLog("event=%s ignored: master switch disabled", name);
+		return;
+	}
+	if (std::strcmp(name, "player_spawn") == 0) {
+		const int userId = event->GetInt("userid", 0);
+		m_playerDamage.erase(userId);
+		m_pendingSpecialKills.erase(userId);
+		const int index = I::EngineClient ? I::EngineClient->GetPlayerForUserID(userId) : 0;
+		auto* entity = index > 0 && I::ClientEntityList
+			? I::ClientEntityList->GetClientEntity(index) : nullptr;
+		auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
+		const SpecialVictim victim = player
+			? SpecialVictimFromZombieClass(player->m_zombieClass()) : SpecialVictim::Unknown;
+		if (victim == SpecialVictim::Unknown) m_specialVictims.erase(userId);
+		else m_specialVictims[userId] = victim;
+		return;
+	}
+	if (std::strcmp(name, "ability_use") == 0) {
+		const int userId = event->GetInt("userid", 0);
+		const SpecialVictim victim = SpecialVictimFromAbility(event->GetString("ability", ""));
+		if (userId > 0 && victim != SpecialVictim::Unknown) m_specialVictims[userId] = victim;
+		return;
+	}
+	if (std::strcmp(name, "tank_spawn") == 0) {
+		const int userId = event->GetInt("userid", 0);
+		if (userId > 0) m_specialVictims[userId] = SpecialVictim::Tank;
+		return;
+	}
+	if (std::strcmp(name, "witch_spawn") == 0) {
+		m_infectedDamage.erase(event->GetInt("witchid", 0));
 		return;
 	}
 	if (std::strcmp(name, "infected_hurt") == 0) {
@@ -713,14 +820,14 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		const int entityId = event->GetInt("entityid", 0);
 		CaptureFeedbackPosition(event, entityId);
 		const bool witch = IsWitchEntity(entityId);
-		const KillMethod hurtMethod = ClassifyTrackedDamage(event);
-		m_infectedDamage[entityId] = {hurtMethod, SimulationTime()};
+		const KillClassification classification = ClassifyTrackedDamage(event);
+		if (entityId > 0) m_infectedDamage[entityId] = {classification, SimulationTime()};
 		if (witch) {
-			KFLog("tracked Witch damage entity=%d method=%s", entityId, MethodName(hurtMethod));
+			KFLog("tracked Witch damage entity=%d method=%s", entityId,
+				ClassificationName(classification));
 		}
 		if (G::Vars.killFeedbackHitMode >= 2) {
-			ResolveCombinedFeedback(false, hurtMethod == KillMethod::Headshot,
-				hurtMethod == KillMethod::Melee, 0, false, true);
+			ResolveCombinedFeedback(false, false, false, 0, false, true);
 		}
 		return;
 	}
@@ -728,43 +835,33 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		const int entityId = event->GetInt("entityid", 0);
 		CaptureFeedbackPosition(event, entityId);
 		if (IsLocalAttacker(event, "userid") && IsWitchEntity(entityId)) {
-			m_infectedDamage[entityId] = {KillMethod::Melee, SimulationTime()};
+			KillClassification classification;
+			classification.melee = true;
+			m_infectedDamage[entityId] = {classification, SimulationTime()};
 			KFLog("tracked Witch melee_kill entity=%d", entityId);
 			return;
 		}
-		if (!G::Vars.killFeedbackCommon || !G::Vars.killFeedbackMelee ||
-			!IsLocalAttacker(event, "userid")) return;
-		const float now = SimulationTime();
-		if (entityId > 0 && entityId == m_lastCommonEntityId && now - m_lastCommonKillTime <= 0.5f) return;
-		m_lastCommonEntityId = entityId;
-		m_lastCommonKillTime = now;
-		KFLog("common melee accepted source=melee_kill entity=%d", entityId);
-		Trigger(false, KillMethod::Melee, 0);
+		if (!IsLocalAttacker(event, "userid") || entityId <= 0) return;
+		KillClassification classification;
+		classification.melee = true;
+		m_infectedDamage[entityId] = {classification, SimulationTime()};
+		KFLog("tracked common melee_kill entity=%d", entityId);
 		return;
 	}
 	if (std::strcmp(name, "player_hurt") == 0) {
 		const bool local = IsLocalAttacker(event, "attacker");
 		if (!local) return;
 		const int victimUserId = event->GetInt("userid", 0);
+		if (victimUserId <= 0) return;
 		CaptureFeedbackPosition(event, I::EngineClient->GetPlayerForUserID(victimUserId));
 		const SpecialVictim victim = GetSpecialVictim(event);
 		if (victim == SpecialVictim::Unknown) return;
-		const KillMethod hurtMethod = ClassifySpecialKill(event);
-		m_playerDamage[victimUserId] = {victim, hurtMethod, SimulationTime()};
+		const KillClassification classification = ClassifySpecialKill(event);
+		m_playerDamage[victimUserId] = {victim, classification, SimulationTime()};
 		m_specialVictims[victimUserId] = victim;
 		KFLog("tracked player_hurt victim=%s userid=%d health=%d method=%s",
 			SpecialVictimName(victim), victimUserId, event->GetInt("health", -1),
-			MethodName(hurtMethod));
-		if (event->GetInt("health", 1) <= 0) {
-			m_pendingSpecialKills.erase(victimUserId);
-			HandleSpecialKill(victim, hurtMethod, victimUserId, "player_hurt");
-		} else {
-			// HitFeedback_Check2: an SI target resolves both SI and CI candidates.
-			if (G::Vars.killFeedbackHitMode >= 1) {
-				ResolveCombinedFeedback(false, hurtMethod == KillMethod::Headshot,
-					hurtMethod == KillMethod::Melee, 0, true, true);
-			}
-		}
+			ClassificationName(classification));
 		return;
 	}
 
@@ -782,26 +879,30 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		dedicatedVictim = SpecialVictim::Tank; dedicatedSource = "tank_killed";
 	}
 	if (dedicatedVictim != SpecialVictim::Unknown) {
+		if (!G::Vars.killFeedbackEnabled) return;
 		if (!IsLocalAttacker(event, "attacker")) return;
 		const int victimUserId = event->GetInt("userid", 0);
 		CaptureFeedbackPosition(event, I::EngineClient->GetPlayerForUserID(victimUserId));
 		m_specialVictims[victimUserId] = dedicatedVictim;
-		KillMethod dedicatedMethod = KillMethod::Firearm;
+		KillClassification classification = ClassifySpecialKill(event);
 		const auto tracked = m_playerDamage.find(victimUserId);
-		if (tracked != m_playerDamage.end()) dedicatedMethod = tracked->second.method;
+		if (tracked != m_playerDamage.end() &&
+			SimulationTime() - tracked->second.time <= DAMAGE_RECORD_LIFETIME) {
+			classification = tracked->second.classification;
+		}
 		if ((dedicatedVictim == SpecialVictim::Charger && event->GetBool("melee", false)) ||
 			(dedicatedVictim == SpecialVictim::Tank && event->GetBool("melee_only", false))) {
-			dedicatedMethod = KillMethod::Melee;
-		} else if (dedicatedVictim == SpecialVictim::Jockey && event->GetString("weapon", "")[0] != '\0') {
-			dedicatedMethod = ClassifySpecialKill(event);
+			classification.melee = true;
 		}
-		QueueSpecialKill(dedicatedVictim, dedicatedMethod, victimUserId, dedicatedSource);
+		QueueSpecialKill(dedicatedVictim, classification, victimUserId, dedicatedSource);
 		m_playerDamage.erase(victimUserId);
 		return;
 	}
-	KillMethod method = KillMethod::Firearm;
+	KillClassification classification;
 	if (std::strcmp(name, "infected_death") == 0) {
-		const int infectedId = event->GetInt("infected_id", 0);
+		if (!G::Vars.killFeedbackEnabled) return;
+		int infectedId = event->GetInt("infected_id", 0);
+		if (infectedId <= 0) infectedId = event->GetInt("entityid", 0);
 		CaptureFeedbackPosition(event, infectedId);
 		const bool local = IsLocalAttacker(event, "attacker");
 		KFLog("event=infected_death attacker=%d local=%d commonEnabled=%d weaponId=%d headshot=%d blast=%d",
@@ -816,83 +917,68 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 			m_infectedDamage.erase(infectedId);
 			return;
 		}
-		method = ClassifyCommonKill(event);
+		classification = ClassifyCommonKill(event);
+		m_lastCommonEntityId = infectedId;
+		m_lastCommonKillTime = now;
 		m_infectedDamage.erase(infectedId);
 	} else if (std::strcmp(name, "player_death") == 0) {
+		if (!G::Vars.killFeedbackEnabled) return;
 		const bool local = IsLocalAttacker(event, "attacker");
+		const int victimUserId = event->GetInt("userid", 0);
 		const SpecialVictim victim = GetSpecialVictim(event);
 		KFLog("event=player_death attacker=%d local=%d specialEnabled=%d victim=%s weapon=%s headshot=%d type=%d",
 			event->GetInt("attacker", 0), local, G::Vars.killFeedbackSpecial,
 			SpecialVictimName(victim),
 			event->GetString("weapon", ""), event->GetBool("headshot", false), event->GetInt("type", 0));
-		if (!local || victim == SpecialVictim::Unknown) return;
-		const int victimUserId = event->GetInt("userid", 0);
-		CaptureFeedbackPosition(event, I::EngineClient->GetPlayerForUserID(victimUserId));
+		if (!local || victim == SpecialVictim::Unknown) {
+			m_playerDamage.erase(victimUserId);
+			m_pendingSpecialKills.erase(victimUserId);
+			if (!local) m_specialVictims.erase(victimUserId);
+			return;
+		}
+		int victimEntity = I::EngineClient->GetPlayerForUserID(victimUserId);
+		if (victimEntity <= 0) victimEntity = event->GetInt("entityid", 0);
+		CaptureFeedbackPosition(event, victimEntity);
 		m_pendingSpecialKills.erase(victimUserId);
-		const auto tracked = m_playerDamage.find(victimUserId);
-		method = tracked != m_playerDamage.end() ? tracked->second.method : ClassifySpecialKill(event);
-		HandleSpecialKill(victim, method, victimUserId, "player_death");
+		classification = ClassifySpecialKill(event);
+		HandleSpecialKill(victim, classification, victimUserId, "player_death");
 		m_playerDamage.erase(victimUserId);
 		m_specialVictims.erase(victimUserId);
 		return;
 	} else if (std::strcmp(name, "witch_killed") == 0) {
-		const bool local = IsLocalAttacker(event, "userid");
-		KFLog("event=witch_killed userid=%d local=%d specialEnabled=%d witchEnabled=%d witchid=%d meleeOnly=%d",
-			event->GetInt("userid", 0), local, G::Vars.killFeedbackSpecial, G::Vars.killFeedbackWitch,
-			event->GetInt("witchid", 0), event->GetBool("melee_only", false));
-		if (!G::Vars.killFeedbackSpecial || !G::Vars.killFeedbackWitch || !local) return;
-		CaptureFeedbackPosition(event, event->GetInt("witchid", 0));
-		method = ClassifyWitchKill(event);
 		m_infectedDamage.erase(event->GetInt("witchid", 0));
-		if (!IsMethodEnabled(method)) {
-			KFLog("witch kill ignored: method=%s disabled", MethodName(method));
-			return;
-		}
-		KFLog("witch kill accepted: method=%s", MethodName(method));
-		Trigger(true, method, 0);
+		KFLog("witch_killed cleanup; themed feedback is owned by player_death");
 		return;
 	} else {
 		return;
 	}
 
-	if (!IsMethodEnabled(method)) {
-		KFLog("kill ignored: method=%s disabled", MethodName(method));
+	if (!IsClassificationEnabled(classification)) {
+		KFLog("kill ignored: method=%s disabled", ClassificationName(classification));
 		return;
 	}
-	KFLog("kill accepted: method=%s", MethodName(method));
-	Trigger(false, method, 0);
+	KFLog("kill accepted: method=%s", ClassificationName(classification));
+	Trigger(false, classification, 0);
 }
 
-void KillFeedback::Trigger(bool special, KillMethod method, int streak) {
-	const bool meleeOnly = method == KillMethod::Melee;
-	const bool headshot = method == KillMethod::Headshot;
-	if (method == KillMethod::Melee || method == KillMethod::Explosion) {
-		ResolveCombinedFeedback(true, false, meleeOnly, streak,
-			special, true);
-		KFLog("trigger method-only method=%s special=%d streak=%d", MethodName(method),
-			special, m_streak);
-		return;
-	}
+void KillFeedback::Trigger(bool special, const KillClassification& classification, int streak) {
 	if (!special) {
-		ResolveCombinedFeedback(true, headshot, meleeOnly, 0, false, true);
+		ResolveCombinedFeedback(true, classification.headshot, classification.melee, 0, false, true);
 		return;
 	}
 	m_streak = m_streak < 1000000 ? m_streak + 1 : 1;
 	const int streakValue = G::Vars.killFeedbackMultiKill
 		? std::max(1, streak > 0 ? streak : m_streak) : 0;
-	KFLog("trigger streak=%d method=%s special=%d", m_streak, MethodName(method), special);
-	ResolveCombinedFeedback(true, headshot, meleeOnly, streakValue,
+	KFLog("trigger streak=%d method=%s special=%d", m_streak,
+		ClassificationName(classification), special);
+	ResolveCombinedFeedback(true, classification.headshot, classification.melee, streakValue,
 		special, true);
 }
 
-const char* KillFeedback::MethodName(KillMethod method) {
-	switch (method) {
-		case KillMethod::Firearm: return "firearm";
-		case KillMethod::Headshot: return "headshot";
-		case KillMethod::Melee: return "melee";
-		case KillMethod::Explosion: return "explosion";
-	}
-	return "unknown";
+const char* KillFeedback::ClassificationName(const KillClassification& classification) {
+	if (classification.explosion) return classification.headshot ? "explosion_headshot" : "explosion";
+	if (classification.melee) return classification.headshot ? "melee_headshot" : "melee";
+	return classification.headshot ? "headshot" : "firearm";
 }
 
 const char* KillFeedback::SpecialVictimName(SpecialVictim victim) {
@@ -928,6 +1014,7 @@ KillFeedback::SpecialVictim KillFeedback::SpecialVictimFromAbility(const char* a
 	if (std::strcmp(ability, "ability_vomit") == 0) return SpecialVictim::Boomer;
 	if (std::strcmp(ability, "ability_lunge") == 0) return SpecialVictim::Hunter;
 	if (std::strcmp(ability, "ability_spit") == 0) return SpecialVictim::Spitter;
+	if (std::strcmp(ability, "ability_leap") == 0) return SpecialVictim::Jockey;
 	if (std::strcmp(ability, "ability_charge") == 0) return SpecialVictim::Charger;
 	if (std::strcmp(ability, "ability_throw") == 0) return SpecialVictim::Tank;
 	return SpecialVictim::Unknown;
@@ -936,6 +1023,12 @@ KillFeedback::SpecialVictim KillFeedback::SpecialVictimFromAbility(const char* a
 void KillFeedback::Draw() {
 	LoadThemes();
 	WarmParticles();
+	PumpCommonHitTrace();
+	for (const FeedbackPosition& hit : m_pendingSpecialHits) {
+		m_feedbackPosition = hit;
+		ResolveCombinedFeedback(false, false, false, 0, true, true);
+	}
+	m_pendingSpecialHits.clear();
 	FlushPendingSpecialKills();
 	PumpOverlay();
 }
@@ -943,7 +1036,7 @@ void KillFeedback::Draw() {
 void KillFeedback::Stop() {
 	if (m_overlayActive) {
 		m_overlayActive = false;
-		if (I::EngineClient) I::EngineClient->ClientCmd("r_screenoverlay off");
+		if (I::EngineClient) I::EngineClient->ClientCmd("r_screenoverlay \"\"");
 	}
 }
 
@@ -964,6 +1057,10 @@ void KillFeedback::Reset() {
 	m_precachedParticles.clear();
 	m_feedbackPosition = {};
 	m_lastImpactPosition = {};
+	m_pendingImpactPosition = {};
+	m_pendingImpactTick = 0;
+	m_lastCommonTraceTick = 0;
+	m_pendingSpecialHits.clear();
 }
 
 bool KillFeedback::InitListeners() {
@@ -972,7 +1069,7 @@ bool KillFeedback::InitListeners() {
 		return false;
 	}
 	static const char* const kEvents[] = {
-		"round_start", "mission_lost", "map_transition",
+		"round_start", "round_end", "mission_lost", "map_transition",
 		"bullet_impact",
 		"player_spawn", "ability_use", "tank_spawn",
 		"player_hurt", "player_death",
@@ -982,12 +1079,14 @@ bool KillFeedback::InitListeners() {
 		"jockey_killed", "tank_killed",
 	};
 	bool allOk = true;
+	bool anyOk = false;
 	for (const char* name : kEvents) {
 		const bool added = I::GameEventManager->AddListener(&m_listener, name, false);
 		KFLog("listener %s=%d", name, added ? 1 : 0);
 		allOk = allOk && added;
+		anyOk = anyOk || added;
 	}
-	m_listenersRegistered = true;
+	m_listenersRegistered = anyOk;
 	KFLog("listener registration complete allOk=%d", allOk);
 	return allOk;
 }
@@ -1129,8 +1228,9 @@ void KillFeedback::SaveConfig() const {
 void KillFeedback::PrintStatus() const {
 	char message[512] = {};
 	_snprintf_s(message, sizeof(message), _TRUNCATE,
-		"enabled=%d si=%s ci=%s themes=%d streak=%d overlay=%d particles=%d precache=%p dispatch=%p",
-		G::Vars.killFeedbackEnabled, m_siTheme.c_str(), m_ciTheme.c_str(),
+		"kill=%d hitMode=%d si=%s ci=%s themes=%d streak=%d overlay=%d particles=%d precache=%p dispatch=%p",
+		G::Vars.killFeedbackEnabled, G::Vars.killFeedbackHitMode,
+		m_siTheme.c_str(), m_ciTheme.c_str(),
 		static_cast<int>(m_themes.size()), m_streak, m_overlayActive,
 		static_cast<int>(m_precachedParticles.size()),
 		reinterpret_cast<void*>(U::Offsets.m_dwPrecacheParticleSystem),

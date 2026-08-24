@@ -142,7 +142,7 @@ void InGameMenu::InitConfigSwitches() {
 	}
 	auto killFeedbackMenu = FindMenuById("kill_feedback");
 	if (killFeedbackMenu) {
-		killFeedbackMenu->setSwitchStateByName("启用击杀反馈", G::Vars.killFeedbackEnabled);
+		killFeedbackMenu->setSwitchStateByName("启用击杀提示", G::Vars.killFeedbackEnabled);
 		killFeedbackMenu->setSwitchStateByName("普通感染者", G::Vars.killFeedbackCommon);
 		killFeedbackMenu->setSwitchStateByName("特殊感染者（含Witch）", G::Vars.killFeedbackSpecial);
 		killFeedbackMenu->setSwitchStateByName("视觉效果（图标/粒子）", G::Vars.killFeedbackIcon);
@@ -167,7 +167,7 @@ void InGameMenu::InitConfigSwitches() {
 	}
 	auto hitFeedbackMenu = FindMenuById("hit_feedback");
 	if (hitFeedbackMenu) {
-		hitFeedbackMenu->setSwitchStateByName("启用命中反馈", G::Vars.hitFeedbackEnabled);
+		hitFeedbackMenu->setSwitchStateByName("启用伤害数字与准星", G::Vars.hitFeedbackEnabled);
 		hitFeedbackMenu->setSwitchStateByName("伤害数字", G::Vars.hitFeedbackNumbers);
 		hitFeedbackMenu->setSwitchStateByName("命中标记", G::Vars.hitFeedbackHitMarker);
 		hitFeedbackMenu->setSwitchStateByName("普通感染者伤害数字", G::Vars.hitFeedbackCommon);

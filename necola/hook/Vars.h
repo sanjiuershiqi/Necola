@@ -50,7 +50,7 @@ public:
     int menuAnchor = 0;       // 0=left, 1=center, 2=right
     int menuOpacity = 220;    // background alpha, clamped to 160..245
 
-    // skeeto-style kill feedback (themes from skeeto_killfeed.vpk).
+    // Themed hit/kill feedback (themes from skeeto_killfeed.vpk).
     bool killFeedbackEnabled = false;
     bool killFeedbackLog = false;
     bool killFeedbackCommon = true;
@@ -70,13 +70,13 @@ public:
     bool killFeedbackMelee = true;
     bool killFeedbackExplosion = true;
     bool killFeedbackMultiKill = true;
-    // Hit overlay: 1 = kills only, 2 = kills + per-hit feedback.
+    // Themed hits: 0=off, 1=SI only, 2=SI + Common/Witch. Independent of killFeedbackEnabled.
     int killFeedbackHitMode = 1;
     bool killFeedbackSiDedicated = true;  // original skeeto default: SI visual wins
     bool killFeedbackSiSound = true;      // true: SI scalar sound wins when available
     int killFeedbackSoundVolume = 100;
 
-    // skeeto-style hit feedback: floating damage numbers + crosshair hit marker.
+    // Independent damage UI: floating numbers + crosshair marker, never gates themed feedback.
     bool hitFeedbackEnabled = false;
     bool hitFeedbackNumbers = true;
     bool hitFeedbackHitMarker = true;

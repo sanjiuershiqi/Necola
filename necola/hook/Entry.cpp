@@ -256,6 +256,11 @@ static bool RunLoadBody()
 		return false;
 	}
 	ELog("Step 7 done");
+	ELog("Step 7.1: HitFeedback m_iHealth RecvProp proxy");
+	if (!F::HitFeedbackMgr.InstallHealthProxy()) {
+		ELog("WARN: SI health proxy unavailable; local hurt events remain as fallback");
+	}
+	ELog("Step 7.1 done");
 
 	// Initialize ADS subsystem
 	ELog("Step 8: AdsMgr.Init (if enabled)");
@@ -313,6 +318,13 @@ static bool RunLoadBody()
 		F::CmdMgr.RegistCommand("necola_killfeedback_test", [](int*) {
 			F::KillFeedbackMgr.Preview(0);
 		}, "test Necola kill feedback assets");
+		F::CmdMgr.RegistCommand("necola_hitfeedback_status", [](int*) {
+			if (I::Cvars) I::Cvars->ConsolePrintf(
+				"[Necola] themedHitMode=%d damageUI=%d numbers=%d marker=%d commonNumbers=%d healthProxy=%d\n",
+				G::Vars.killFeedbackHitMode, G::Vars.hitFeedbackEnabled,
+				G::Vars.hitFeedbackNumbers, G::Vars.hitFeedbackHitMarker,
+				G::Vars.hitFeedbackCommon, F::HitFeedbackMgr.HasHealthProxy());
+		}, "print Necola hit feedback status");
 	}
 	ELog("Step 10 done");
 

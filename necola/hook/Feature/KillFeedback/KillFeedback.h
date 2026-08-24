@@ -20,7 +20,7 @@ public:
 //  - Themes loaded from skeeto/skeeto_<id>.json (mounted via skeeto_killfeed.vpk)
 //  - Style selection with priority override (hit / streak_N / melee / headshot / kill)
 //  - Render_ScreenOverlay: overlay plus screen/world particle dispatch, with a
-//    pump that restores `r_screenoverlay off` when the duration elapses
+//    pump that clears `r_screenoverlay` when the duration elapses
 //  - Sound_PlayVol: `playvol <file> <volume>` client command
 //  - Commands unlocked once via Cmd_Unlock (clear FCVAR_CHEAT, add
 //    FCVAR_CLIENTCMD_CAN_EXECUTE) exactly like skeeto's Cmd_PlaySound.
@@ -61,6 +61,7 @@ public:
 	bool InitListeners();
 	void LoadThemes();
 	void OnGameEvent(IGameEvent* event);
+	void OnSpecialHealthDrop(const Vector& position);
 	void RefreshSpecialVictims();
 	void Draw();
 	void Stop();
@@ -81,11 +82,10 @@ public:
 	void SetTheme(const char* channel, const std::string& themeId);
 
 private:
-	enum class KillMethod {
-		Firearm,
-		Headshot,
-		Melee,
-		Explosion,
+	struct KillClassification {
+		bool headshot = false;
+		bool melee = false;
+		bool explosion = false;
 	};
 	enum class SpecialVictim {
 		Unknown,
@@ -102,16 +102,15 @@ private:
 	bool IsLocalAttacker(IGameEvent* event, const char* field) const;
 	SpecialVictim GetSpecialVictim(IGameEvent* event) const;
 	bool IsSpecialVictimEnabled(SpecialVictim victim) const;
-	void HandleSpecialKill(SpecialVictim victim, KillMethod method, int victimUserId, const char* source);
-	void QueueSpecialKill(SpecialVictim victim, KillMethod method, int victimUserId, const char* source);
+	void HandleSpecialKill(SpecialVictim victim, KillClassification classification, int victimUserId, const char* source);
+	void QueueSpecialKill(SpecialVictim victim, KillClassification classification, int victimUserId, const char* source);
 	void FlushPendingSpecialKills();
-	KillMethod ClassifyCommonKill(IGameEvent* event) const;
-	KillMethod ClassifySpecialKill(IGameEvent* event) const;
-	KillMethod ClassifyWitchKill(IGameEvent* event) const;
-	KillMethod ClassifyTrackedDamage(IGameEvent* event) const;
-	bool IsMethodEnabled(KillMethod method) const;
+	KillClassification ClassifyCommonKill(IGameEvent* event) const;
+	KillClassification ClassifySpecialKill(IGameEvent* event) const;
+	KillClassification ClassifyTrackedDamage(IGameEvent* event) const;
+	bool IsClassificationEnabled(const KillClassification& classification) const;
 	bool IsWitchEntity(int entityId) const;
-	void Trigger(bool special, KillMethod method, int streak);
+	void Trigger(bool special, const KillClassification& classification, int streak);
 	bool HitCheck(const KillTheme& theme, const char* eventName, bool headshot, bool melee,
 		int streak, KillStyle& out) const;
 	void RenderScreenOverlay(const KillStyle& style, int defaultDuration, bool allowRepeat);
@@ -121,9 +120,10 @@ private:
 	void WarmParticles();
 	void SpawnParticles(const KillStyle& style);
 	void CaptureFeedbackPosition(IGameEvent* event, int entityIndex);
+	void PumpCommonHitTrace();
 	bool UnlockCommands();
 
-	static const char* MethodName(KillMethod method);
+	static const char* ClassificationName(const KillClassification& classification);
 	static const char* SpecialVictimName(SpecialVictim victim);
 	static SpecialVictim SpecialVictimFromZombieClass(int zombieClass);
 	static SpecialVictim SpecialVictimFromAbility(const char* ability);
@@ -141,17 +141,17 @@ private:
 	bool m_particlesWarmed = false;
 	int m_streak = 0;
 	struct DamageRecord {
-		KillMethod method = KillMethod::Firearm;
+		KillClassification classification;
 		float time = 0.0f;
 	};
 	struct PlayerDamageRecord {
 		SpecialVictim victim = SpecialVictim::Unknown;
-		KillMethod method = KillMethod::Firearm;
+		KillClassification classification;
 		float time = 0.0f;
 	};
 	struct PendingSpecialKill {
 		SpecialVictim victim = SpecialVictim::Unknown;
-		KillMethod method = KillMethod::Firearm;
+		KillClassification classification;
 		float time = 0.0f;
 		const char* source = "unknown";
 		Vector position;
@@ -168,6 +168,10 @@ private:
 	std::unordered_set<std::string> m_precachedParticles;
 	FeedbackPosition m_feedbackPosition;
 	FeedbackPosition m_lastImpactPosition;
+	FeedbackPosition m_pendingImpactPosition;
+	std::uint32_t m_pendingImpactTick = 0;
+	std::uint32_t m_lastCommonTraceTick = 0;
+	std::vector<FeedbackPosition> m_pendingSpecialHits;
 	KillFeedbackListener m_listener;
 	bool m_listenersRegistered = false;
 	int m_lastSpecialVictimUserId = 0;

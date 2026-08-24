@@ -195,20 +195,20 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 
 其中只有 HUD 可见性直接参与每帧准星门控；其他值主要用于一次性冲突诊断日志。
 
-### 7.1 击杀反馈
+### 7.1 主题反馈与伤害 UI
 
-`KillFeedback` 通过官方 `IGameEventManager2::AddListener(listener, name, false)` 注册 18 个事件，
+`KillFeedback` 通过官方 `IGameEventManager2::AddListener(listener, name, false)` 注册 20 个事件，
 由 `IGameEventListener2` 派发到统一状态机。该通道在本地服务器和远程独立服务器上都有效；此前使用的
 `FireEvent` 虚表 Hook 只在本地进程内触发，连服时收不到事件。覆盖事件包括 `infected_death`、
 `player_death`、`witch_killed`、各特感专用死亡事件、`player_hurt`、`infected_hurt`、`melee_kill`
 和身份缓存来源（spawn/ability/tank_spawn）。普通感染者
 与特感分别受总开关控制，Smoker、Boomer、Hunter、Spitter、Jockey、Charger、Tank 和 Witch 另有
 独立开关。玩家型特感优先从死亡实体的 `m_zombieClass` 识别，实体不可用时回退 userid 缓存与
-`victimname`。仅本地网络的事件（如 `infected_hurt`）在远程服务器上不会到达，此时 Witch 击杀方式
-退化为 `witch_killed.melee_only` 与死亡事件字段推断。
+`victimname`。`player_death` 是全部 SI 和 Witch 的权威击杀来源；专用死亡事件只作 150ms 延迟回退，
+`witch_killed` 不生成主题反馈，只清理状态。
 
-击杀先分类为普通枪械、爆头、近战或爆炸；特感普通枪械和爆头增加滚动 streak，再按主题 `wrap`
-选择 `streak_N`。近战和爆炸不改变 streak，普通感染者不参与。主题从外部 addon
+爆头、近战和爆炸使用正交标志而非互斥枚举；全部 SI/Witch 击杀先增加滚动 streak，再按主题 `wrap`
+选择 `streak_N`，普通感染者不参与。主题从外部 addon
 `skeeto_killfeed.vpk` 的 `skeeto/skeeto_*.json` 加载，候选内部按
 `hit -> streak/kill -> melee -> headshot` 和 priority 覆盖；SI/CI 候选再按 `si_dedicated` 选视觉、
 按 `si_sound` 选标量音效。渲染忠实使用 skeeto 的 `r_screenoverlay` 命令、70ms 节流和到期泵
@@ -217,6 +217,12 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 坐标缺失时回退实体原点或本地 `bullet_impact`。音效通过解锁后的 `playvol` 输出。
 `r_screenoverlay/play/playvol` 一次性清除 `FCVAR_CHEAT` 并添加
 `FCVAR_CLIENTCMD_CAN_EXECUTE`。
+
+主题命中与击杀提示拥有独立开关：`KillFeedback.Enabled` 只控制击杀，`HitMode=0/1/2` 独立控制
+关闭/仅 SI/全部主题命中。SI 命中生产端挂接 `CBasePlayer`/`CTerrorPlayer.m_iHealth` RecvProxy，原代理
+始终先执行；血量下降需匹配 180ms 本地 impact 或 400ms `+attack`，再入 32 槽 Paint 队列。
+Common/Witch 命中由本地 `bullet_impact` 延迟 45ms 后通过 `EngineTrace` 确认。独立 `HitFeedback`
+只负责 20 槽伤害数字和红色准星标记，其 `Enabled` 不参与主题解析。
 
 ## 八、配置与日志
 
