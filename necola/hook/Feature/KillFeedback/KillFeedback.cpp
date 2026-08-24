@@ -330,12 +330,12 @@ void KillFeedback::WarmParticles() {
 		!I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
 	auto warmTheme = [&](const KillTheme* theme) {
 		if (!theme) return;
-		PrecacheParticles(theme.hit);
-		PrecacheParticles(theme.kill);
-		PrecacheParticles(theme.headshot);
-		PrecacheParticles(theme.melee);
-		PrecacheParticles(theme.streakDefault);
-		for (int i = 1; i <= 10; ++i) PrecacheParticles(theme.streak[i]);
+		PrecacheParticles(theme->hit);
+		PrecacheParticles(theme->kill);
+		PrecacheParticles(theme->headshot);
+		PrecacheParticles(theme->melee);
+		PrecacheParticles(theme->streakDefault);
+		for (int i = 1; i <= 10; ++i) PrecacheParticles(theme->streak[i]);
 	};
 	warmTheme(FindTheme("si", m_siTheme));
 	warmTheme(FindTheme("ci", m_ciTheme));
