@@ -182,8 +182,9 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 4. 只有找不到 ConVar 时才回退到 `ClientCmd("crosshair 0/1")`。
 5. 绘制 Necola VGUI 菜单。
 
-菜单每帧从 `IMatSystemSurface::GetScreenSize()` 更新布局，支持左/中/右锚点、三档背景透明度、分页
-状态和禁用项样式。可用区域小于 `452x366` 时自动关闭。`IN_KeyEvent` 在菜单可见时消费数字导航键
+菜单每帧从 `IMatSystemSurface::GetScreenSize()` 更新布局，支持左/中/右锚点、三档背景透明度、两级
+路径标题、右对齐页码/开关状态、UTF-8 文本宽度裁切、当前值标记和子菜单页码记忆。可用区域小于
+`452x366` 时自动关闭。`IN_KeyEvent` 在菜单可见时消费数字导航键、左右/PageUp/PageDown/Backspace
 的按下与释放，防止底层游戏绑定同时触发。
 
 `L4N::Env` 当前读取：

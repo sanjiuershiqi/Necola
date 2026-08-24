@@ -71,6 +71,18 @@ int __fastcall BaseClient::IN_KeyEvent::Detour(void* ecx, void* edx, int eventco
 			if (eventcode == 1) F::MenuMgr.ProcessKey(digit);
 			return 0;
 		}
+		if (keynum == KEY_LEFT || keynum == KEY_PAGEUP) {
+			if (eventcode == 1) F::MenuMgr.ProcessKey(8);
+			return 0;
+		}
+		if (keynum == KEY_RIGHT || keynum == KEY_PAGEDOWN) {
+			if (eventcode == 1) F::MenuMgr.ProcessKey(9);
+			return 0;
+		}
+		if (keynum == KEY_BACKSPACE) {
+			if (eventcode == 1) F::MenuMgr.ProcessKey(0);
+			return 0;
+		}
 		if (keynum == KEY_ESCAPE || keynum == KEY_ENTER || keynum == KEY_PAD_ENTER) {
 			if (eventcode == 1) F::MenuMgr.ProcessKey(0);
 			return 0;

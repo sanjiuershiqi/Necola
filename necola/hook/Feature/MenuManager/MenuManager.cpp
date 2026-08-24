@@ -177,3 +177,34 @@ void InGameMenu::InitConfigSwitches() {
 	RefreshCrosshairModeUI();
 	RefreshAppearanceLabels();
 }
+
+int InGameMenu::EngineGetTextWidth(const char* text) const {
+	if (!text || !I::MatSystemSurface || !inGameMenuFONT) return 0;
+	wchar_t wstr[1024] = {};
+	MultiByteToWideChar(CP_UTF8, 0, text, -1, wstr, 1024);
+	int width = 0;
+	int height = 0;
+	I::MatSystemSurface->GetTextSize(inGameMenuFONT, wstr, width, height);
+	return width;
+}
+
+void InGameMenu::EngineDrawTextFitted(const char* text, const int x, const int y,
+	int maxWidth, const Color& color) {
+	if (!text || maxWidth <= 0 || !I::MatSystemSurface) return;
+	wchar_t wstr[1024] = {};
+	MultiByteToWideChar(CP_UTF8, 0, text, -1, wstr, 1024);
+	std::wstring fitted(wstr);
+	int width = 0;
+	int height = 0;
+	I::MatSystemSurface->GetTextSize(inGameMenuFONT, fitted.c_str(), width, height);
+	while (width > maxWidth && fitted.size() > 4) {
+		fitted.resize(fitted.size() - 1);
+		std::wstring probe = fitted + L"...";
+		I::MatSystemSurface->GetTextSize(inGameMenuFONT, probe.c_str(), width, height);
+	}
+	if (fitted != wstr) fitted += L"...";
+	I::MatSystemSurface->DrawSetTextFont(inGameMenuFONT);
+	I::MatSystemSurface->DrawSetTextColor(color);
+	I::MatSystemSurface->DrawSetTextPos(x, y);
+	I::MatSystemSurface->DrawPrintText(fitted.c_str(), static_cast<int>(fitted.size()));
+}

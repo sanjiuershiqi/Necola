@@ -165,7 +165,9 @@ bind MOUSE3 necola_ads
 
 Necola 不读取 `FeatureConfig.json` 中的 `KeyBinds` 数组，也不会自动执行 `bind`。
 
-菜单打开时会消费数字键及数字小键盘的按下/释放，避免游戏绑定穿透；`0`、Enter、Esc 返回。
+菜单打开时会消费数字键及数字小键盘的按下/释放，避免游戏绑定穿透；`8/9`、左右方向键或
+PageUp/PageDown 翻页，`0`、Enter、Esc、Backspace 返回。标题显示两级路径，子菜单保留页码，
+主题/命中模式/音量使用友好名称和绿色 `[当前]` 标记。
 
 ### 3.4 `cs2hud444` 战役计时适配
 

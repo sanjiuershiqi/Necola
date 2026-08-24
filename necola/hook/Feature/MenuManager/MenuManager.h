@@ -209,6 +209,16 @@ public:
 		return false;
 	}
 
+	bool setCurrentPageForOptionPrefix(const std::string& prefix) {
+		for (std::size_t i = 0; i < items.size(); ++i) {
+			if (items[i].type == ITEM_NORMAL && items[i].name.find(prefix) == 0) {
+				currentPage = static_cast<int>(i) / MAX_OPTIONS_PER_PAGE;
+				return true;
+			}
+		}
+		return false;
+	}
+
 	bool setSwitchStateByName(const std::string& switchName, bool state) {
 		for (auto& item : items) {
 			if (item.type == ITEM_SWITCH && item.name == switchName) {
@@ -650,23 +660,13 @@ public:
 			};
 
 			addKillSwitch(killFeedbackMenu, "启用击杀提示", &G::Vars.killFeedbackEnabled, true);
-			addKillSwitch(killFeedbackMenu, "普通感染者", &G::Vars.killFeedbackCommon, false);
-			addKillSwitch(killFeedbackMenu, "特殊感染者（含Witch）", &G::Vars.killFeedbackSpecial, false);
-			addKillSwitch(killFeedbackMenu, "视觉效果（图标/粒子）", &G::Vars.killFeedbackIcon, true);
-			addKillSwitch(killFeedbackMenu, "击杀音效", &G::Vars.killFeedbackSound, false);
 
 			auto siThemeMenu = killFeedbackMenu->addSubMenu("特感主题", "kill_si_theme", "特感主题");
 			registerMenu(siThemeMenu);
 			if (siThemeMenu) {
-				const std::pair<const char*, const char*> themes[] = {
-					{"关闭", "off"}, {"特感 · 瓦罗兰特", "si_valorant"}, {"特感 · CF", "si_cf"},
-					{"特感 · 落雷", "si_lightning"}, {"特感 · 爱心冲击", "si_love"},
-					{"特感 · 星星", "si_star"}, {"特感 · 三角洲Advanced", "si_deltaforce_advanced"},
-					{"特感 · 战地1Advanced", "si_bf1_advanced"},
-					{"特感 · 战地2042Advanced", "si_bf2042_advanced"},
-				};
-				for (const auto& [label, id] : themes) {
-					siThemeMenu->addOption(label, [this, id]() {
+				for (const auto& theme : SiThemeChoices()) {
+					const char* id = theme.id;
+					siThemeMenu->addOption(theme.label, [this, id]() {
 						if (std::strcmp(id, "off") != 0) {
 							G::Vars.killFeedbackSiDedicated = true;
 							auto hitMenu = FindMenuById("kill_hit_tip");
@@ -681,15 +681,9 @@ public:
 			auto ciThemeMenu = killFeedbackMenu->addSubMenu("普感主题", "kill_ci_theme", "普感主题");
 			registerMenu(ciThemeMenu);
 			if (ciThemeMenu) {
-				const std::pair<const char*, const char*> themes[] = {
-					{"关闭", "off"}, {"普感 · OW", "ci_ow"}, {"普感 · Apex", "ci_apex"},
-					{"普感 · CF", "ci_cf"}, {"普感 · COD", "ci_cod"},
-					{"普感 · BF5", "ci_bf5"}, {"普感 · BF1", "ci_bf1"},
-					{"普感 · BF2042", "ci_bf2042"}, {"普感 · 三角洲", "ci_deltaforce"},
-					{"普感 · L4D2", "ci_l4d2"},
-				};
-				for (const auto& [label, id] : themes) {
-					ciThemeMenu->addOption(label, [this, id]() {
+				for (const auto& theme : CiThemeChoices()) {
+					const char* id = theme.id;
+					ciThemeMenu->addOption(theme.label, [this, id]() {
 						F::KillFeedbackMgr.SetTheme("ci", id);
 						RefreshKillFeedbackLabels();
 					});
@@ -723,6 +717,8 @@ public:
 					F::KillFeedbackMgr.SaveConfig();
 				});
 			}
+			addKillSwitch(killFeedbackMenu, "视觉效果（图标/粒子）", &G::Vars.killFeedbackIcon, true);
+			addKillSwitch(killFeedbackMenu, "击杀音效", &G::Vars.killFeedbackSound, false);
 
 			auto volumeMenu = killFeedbackMenu->addSubMenu("音效音量", "kill_sound_volume", "音效音量");
 			registerMenu(volumeMenu);
@@ -738,10 +734,14 @@ public:
 					});
 				}
 			}
+			addKillSwitch(killFeedbackMenu, "普通感染者", &G::Vars.killFeedbackCommon, false);
+			addKillSwitch(killFeedbackMenu, "特殊感染者（含Witch）", &G::Vars.killFeedbackSpecial, false);
 
 			auto specialMenu = killFeedbackMenu->addSubMenu("特感分类设置", "kill_feedback_specials", "特感分类设置");
 			registerMenu(specialMenu);
 			if (specialMenu) {
+				specialMenu->addOption("全部特感开启", [this]() { SetAllKillFeedbackSpecials(true); });
+				specialMenu->addOption("全部特感关闭", [this]() { SetAllKillFeedbackSpecials(false); });
 				for (const auto& [label, setting] : KillFeedbackSpecialSwitches()) {
 					addKillSwitch(specialMenu, label, setting, false);
 				}
@@ -750,6 +750,7 @@ public:
 			auto methodMenu = killFeedbackMenu->addSubMenu("击杀方式", "kill_feedback_methods", "击杀方式");
 			registerMenu(methodMenu);
 			if (methodMenu) {
+				methodMenu->addOption("全部击杀方式开启", [this]() { SetAllKillFeedbackMethods(true); });
 				for (const auto& [label, setting] : KillFeedbackMethodSwitches()) {
 					addKillSwitch(methodMenu, label, setting, false);
 				}
@@ -855,8 +856,10 @@ public:
 			(G::Vars.enableAdsSupport ? "开]" : "关]"));
 		rootMenu->updateSubMenuItemName("seq", std::string("序列修正 [") +
 			(G::Vars.animSequenceModify ? "开]" : "关]"));
-		rootMenu->updateSubMenuItemName("kill_feedback", std::string("主题反馈 [") +
-			(G::Vars.killFeedbackEnabled || G::Vars.killFeedbackHitMode > 0 ? "开]" : "关]"));
+		const char* hitState = G::Vars.killFeedbackHitMode == 0 ? "关" :
+			(G::Vars.killFeedbackHitMode == 1 ? "SI" : "全部");
+		rootMenu->updateSubMenuItemName("kill_feedback", std::string("主题反馈 [击杀") +
+			(G::Vars.killFeedbackEnabled ? "开" : "关") + " / 命中" + hitState + "]");
 		rootMenu->updateSubMenuItemName("hit_feedback", std::string("伤害数字与准星 [") +
 			(G::Vars.hitFeedbackEnabled ? "开]" : "关]"));
 	}
@@ -865,15 +868,58 @@ public:
 		RefreshRootLabels();
 		auto menu = FindMenuById("kill_feedback");
 		if (!menu) return;
-		menu->updateSubMenuItemName("kill_si_theme", std::string("特感主题 [") +
-			F::KillFeedbackMgr.SelectedTheme("si") + "]");
-		menu->updateSubMenuItemName("kill_ci_theme", std::string("普感主题 [") +
-			F::KillFeedbackMgr.SelectedTheme("ci") + "]");
+		const std::string siId = F::KillFeedbackMgr.SelectedTheme("si");
+		const std::string ciId = F::KillFeedbackMgr.SelectedTheme("ci");
+		const std::string siName = ThemeDisplayName(SiThemeChoices(), siId);
+		const std::string ciName = ThemeDisplayName(CiThemeChoices(), ciId);
+		menu->updateSubMenuItemName("kill_si_theme", "特感主题 [" + siName + "]");
+		menu->updateSubMenuItemName("kill_ci_theme", "普感主题 [" + ciName + "]");
 		menu->updateSubMenuItemName("kill_hit_tip", std::string("主题命中效果 [") +
 			(G::Vars.killFeedbackHitMode == 0 ? "关]" :
 				(G::Vars.killFeedbackHitMode == 1 ? "仅SI命中]" : "全部命中]")));
 		menu->updateSubMenuItemName("kill_sound_volume", std::string("音效音量 [") +
 			std::to_string(G::Vars.killFeedbackSoundVolume) + "%]");
+
+		auto siMenu = FindMenuById("kill_si_theme");
+		if (siMenu) {
+			siMenu->setTitle("特感主题 / " + siName);
+			for (const auto& theme : SiThemeChoices()) {
+				siMenu->updateOptionNameByPrefix(theme.label,
+					std::string(theme.label) + (siId == theme.id ? " [当前]" : ""));
+			}
+			for (const auto& theme : SiThemeChoices()) {
+				if (siId == theme.id) siMenu->setCurrentPageForOptionPrefix(theme.label);
+			}
+		}
+		auto ciMenu = FindMenuById("kill_ci_theme");
+		if (ciMenu) {
+			ciMenu->setTitle("普感主题 / " + ciName);
+			for (const auto& theme : CiThemeChoices()) {
+				ciMenu->updateOptionNameByPrefix(theme.label,
+					std::string(theme.label) + (ciId == theme.id ? " [当前]" : ""));
+			}
+			for (const auto& theme : CiThemeChoices()) {
+				if (ciId == theme.id) ciMenu->setCurrentPageForOptionPrefix(theme.label);
+			}
+		}
+		auto hitMenu = FindMenuById("kill_hit_tip");
+		if (hitMenu) {
+			const char* labels[] = {"关闭命中提示", "仅特感命中", "全部命中"};
+			for (int i = 0; i < 3; ++i) {
+				hitMenu->updateOptionNameByPrefix(labels[i], std::string(labels[i]) +
+					(G::Vars.killFeedbackHitMode == i ? " [当前]" : ""));
+			}
+		}
+		auto volumeMenu = FindMenuById("kill_sound_volume");
+		if (volumeMenu) {
+			const std::pair<const char*, int> volumes[] = {
+				{"静音", 0}, {"25%", 25}, {"50%", 50}, {"75%", 75}, {"100%", 100},
+			};
+			for (const auto& [label, value] : volumes) {
+				volumeMenu->updateOptionNameByPrefix(label, std::string(label) +
+					(G::Vars.killFeedbackSoundVolume == value ? " [当前]" : ""));
+			}
+		}
 	}
 
 	void RefreshCrosshairModeUI() {
@@ -1075,6 +1121,14 @@ public:
 		return path;
 	}
 
+	std::string getCurrentContext() const {
+		if (menuStack.empty()) return "";
+		auto stack = menuStack;
+		const std::string current = stack.top()->getTitle();
+		stack.pop();
+		return stack.empty() ? current : stack.top()->getTitle() + " / " + current;
+	}
+
 	void DrawBackground() {
 		EngineDrawFilledRect(menuX + 5, menuY + 5, menuX + menuWidth + 5, menuY + menuHeight + 5, Color{0, 0, 0, 120});
 		EngineDrawFilledRect(menuX, menuY, menuX + menuWidth, menuY + menuHeight,
@@ -1089,9 +1143,16 @@ public:
 
 
 	void DrawTitleLine(std::shared_ptr<MenuNode> menu, int currentPage, int totalPages) {
-		std::string title = menu->getTitle();
-		if (totalPages > 1) title += "  [" + std::to_string(currentPage + 1) + "/" + std::to_string(totalPages) + "]";
-		EngineDrawText(title.c_str(), menuX + 10, menuY + TITLE_LINE * LINE_HEIGHT + 5, C_COLOR_TEXT );
+		const std::string title = getCurrentContext();
+		const std::string page = totalPages > 1
+			? std::to_string(currentPage + 1) + "/" + std::to_string(totalPages) : "";
+		const int pageWidth = page.empty() ? 0 : EngineGetTextWidth(page.c_str());
+		EngineDrawTextFitted(title.c_str(), menuX + 10, menuY + TITLE_LINE * LINE_HEIGHT + 5,
+			menuWidth - 24 - pageWidth, C_COLOR_TEXT);
+		if (!page.empty()) {
+			EngineDrawText(page.c_str(), menuX + menuWidth - 10 - pageWidth,
+				menuY + TITLE_LINE * LINE_HEIGHT + 5, C_COLOR_NAV_ENABLED);
+		}
 
 		EngineDrawLine(menuX + 8, menuY + LINE_HEIGHT, menuX + menuWidth - 8, menuY + LINE_HEIGHT, C_COLOR_LINE);
 	}
@@ -1118,50 +1179,57 @@ public:
 		EngineDrawFilledRect(menuX + 8, y - 3, menuX + menuWidth - 8, y + LINE_HEIGHT - 4, rowColor);
 		if (!item.enabled) {
 			std::string itemText = "[" + std::to_string(index) + "] " + item.name;
-			EngineDrawText(itemText.c_str(), x, y, C_COLOR_TEXT_DISABLED);
+			EngineDrawTextFitted(itemText.c_str(), x, y, menuWidth - 30, C_COLOR_TEXT_DISABLED);
 			return;
 		}
 		if (item.type == ITEM_SWITCH) {
 			std::string statusText = item.switchState ? "[开]" : "[关]";
-			std::string itemText = "[" + std::to_string(index) + "] " + item.name + "  " + statusText;
+			std::string itemText = "[" + std::to_string(index) + "] " + item.name;
+			const int statusWidth = EngineGetTextWidth(statusText.c_str());
 			if (item.switchState) {
 				EngineDrawFilledRect(menuX + 8, y - 3, menuX + 11, y + LINE_HEIGHT - 4, C_COLOR_SWITCH_ON);
-				EngineDrawText(itemText.c_str(), x, y, C_COLOR_SWITCH_ON );
+				EngineDrawTextFitted(itemText.c_str(), x, y, menuWidth - 42 - statusWidth, C_COLOR_SWITCH_ON);
+				EngineDrawText(statusText.c_str(), menuX + menuWidth - 12 - statusWidth, y, C_COLOR_SWITCH_ON);
 			} else {
-				EngineDrawText(itemText.c_str(), x, y, C_COLOR_SWITCH_OFF );
+				EngineDrawTextFitted(itemText.c_str(), x, y, menuWidth - 42 - statusWidth, C_COLOR_SWITCH_OFF);
+				EngineDrawText(statusText.c_str(), menuX + menuWidth - 12 - statusWidth, y, C_COLOR_SWITCH_OFF);
 			}
 		} else {
 			std::string itemText = "[" + std::to_string(index) + "] " +  item.name;
-			if(item.subMenu) {
-				itemText = itemText + " >";
+			const bool currentValue = item.type == ITEM_NORMAL && item.name.find("[当前]") != std::string::npos;
+			Color textColor = currentValue ? C_COLOR_SWITCH_ON :
+				(item.subMenu ? C_COLOR_SUBMENU : C_COLOR_TEXT);
+			if (currentValue) {
+				EngineDrawFilledRect(menuX + 8, y - 3, menuX + 11, y + LINE_HEIGHT - 4, C_COLOR_SWITCH_ON);
 			}
-
-			Color textColor = item.subMenu ? C_COLOR_SUBMENU : C_COLOR_TEXT;
 			if (flashingItemIndex == actualIndex && item.type == ITEM_NORMAL) {
 				textColor = flashYellow ? C_COLOR_FLASH_YELLOW : C_COLOR_FLASH_GREEN;
 			}
 
-			EngineDrawText(itemText.c_str(), x, y , textColor);
+			EngineDrawTextFitted(itemText.c_str(), x, y, menuWidth - (item.subMenu ? 48 : 30), textColor);
+			if (item.subMenu) {
+				EngineDrawText(">", menuX + menuWidth - 24, y, C_COLOR_SUBMENU);
+			}
 		}
 	}
 
 	void DrawNavigationLines( int currentPage, int totalPages) {
 		int line8 = NAV_START_LINE;
 		bool canPrev = currentPage > 0;
-		EngineDrawText("[8] 上一页", menuX + 15, menuY + line8 * LINE_HEIGHT + 5,
+		EngineDrawText("[8/←] 上一页", menuX + 15, menuY + line8 * LINE_HEIGHT + 5,
 			canPrev ? C_COLOR_NAV_ENABLED : C_COLOR_NAV_DISABLED);
 
 		int line9 = NAV_START_LINE + 1;
 		bool canNext = currentPage < totalPages - 1;
-		EngineDrawText("[9] 下一页", menuX + 15, menuY + line9 * LINE_HEIGHT + 5,
+		EngineDrawText("[9/→] 下一页", menuX + 15, menuY + line9 * LINE_HEIGHT + 5,
 			canNext ? C_COLOR_NAV_ENABLED : C_COLOR_NAV_DISABLED);
 
 		int line0 = NAV_START_LINE + 2;
 		bool isMainMenu = menuStack.size() == 1;
 		if(isMainMenu) {
-			EngineDrawText("[0] 关闭", menuX + 15, menuY + line0 * LINE_HEIGHT + 5, C_COLOR_RETURN);
+			EngineDrawText("[0/ESC] 关闭", menuX + 15, menuY + line0 * LINE_HEIGHT + 5, C_COLOR_RETURN);
 		} else {
-			EngineDrawText("[0] 返回", menuX + 15, menuY + line0 * LINE_HEIGHT + 5, C_COLOR_RETURN);
+			EngineDrawText("[0/ESC/Backspace] 返回", menuX + 15, menuY + line0 * LINE_HEIGHT + 5, C_COLOR_RETURN);
 		}
 
 	}
@@ -1169,6 +1237,44 @@ public:
 	void InitMenuFonts();
 
 	private:
+		struct ThemeChoice {
+			const char* label;
+			const char* display;
+			const char* id;
+		};
+
+		static const std::array<ThemeChoice, 9>& SiThemeChoices() {
+			static const std::array<ThemeChoice, 9> choices = {{
+				{"关闭", "关闭", "off"}, {"特感 · 瓦罗兰特", "瓦罗兰特", "si_valorant"},
+				{"特感 · CF", "CF", "si_cf"}, {"特感 · 落雷", "落雷", "si_lightning"},
+				{"特感 · 爱心冲击", "爱心", "si_love"}, {"特感 · 星星", "星星", "si_star"},
+				{"特感 · 三角洲Advanced", "三角洲 Adv.", "si_deltaforce_advanced"},
+				{"特感 · 战地1Advanced", "战地1 Adv.", "si_bf1_advanced"},
+				{"特感 · 战地2042Advanced", "战地2042 Adv.", "si_bf2042_advanced"},
+			}};
+			return choices;
+		}
+
+		static const std::array<ThemeChoice, 10>& CiThemeChoices() {
+			static const std::array<ThemeChoice, 10> choices = {{
+				{"关闭", "关闭", "off"}, {"普感 · OW", "OW", "ci_ow"},
+				{"普感 · Apex", "Apex", "ci_apex"}, {"普感 · CF", "CF", "ci_cf"},
+				{"普感 · COD", "COD", "ci_cod"}, {"普感 · BF5", "BF5", "ci_bf5"},
+				{"普感 · BF1", "BF1", "ci_bf1"}, {"普感 · BF2042", "BF2042", "ci_bf2042"},
+				{"普感 · 三角洲", "三角洲", "ci_deltaforce"}, {"普感 · L4D2", "L4D2", "ci_l4d2"},
+			}};
+			return choices;
+		}
+
+		template<std::size_t N>
+		static std::string ThemeDisplayName(const std::array<ThemeChoice, N>& choices,
+			const std::string& id) {
+			for (const auto& choice : choices) {
+				if (id == choice.id) return choice.display;
+			}
+			return id.empty() ? "未选择" : id;
+		}
+
 		struct KillFeedbackSwitchBinding {
 			const char* label;
 			bool* setting;
@@ -1185,6 +1291,24 @@ public:
 			return {{{"普通枪械", &G::Vars.killFeedbackFirearm}, {"爆头", &G::Vars.killFeedbackHeadshot},
 				{"近战", &G::Vars.killFeedbackMelee}, {"爆炸", &G::Vars.killFeedbackExplosion},
 				{"连杀效果", &G::Vars.killFeedbackMultiKill}}};
+		}
+
+		void SetAllKillFeedbackSpecials(bool state) {
+			auto menu = FindMenuById("kill_feedback_specials");
+			for (const auto& [label, setting] : KillFeedbackSpecialSwitches()) {
+				*setting = state;
+				if (menu) menu->setSwitchStateByName(label, state);
+			}
+			F::KillFeedbackMgr.SaveConfig();
+		}
+
+		void SetAllKillFeedbackMethods(bool state) {
+			auto menu = FindMenuById("kill_feedback_methods");
+			for (const auto& [label, setting] : KillFeedbackMethodSwitches()) {
+				*setting = state;
+				if (menu) menu->setSwitchStateByName(label, state);
+			}
+			F::KillFeedbackMgr.SaveConfig();
 		}
 
 		void UpdatePosition() {
@@ -1236,7 +1360,6 @@ public:
 
 				if (item->type == ITEM_SUBMENU && item->subMenu) {
 					menuStack.push(item->subMenu);
-					item->subMenu->resetToFirstPage();
 				}
 
 				return true;
@@ -1250,6 +1373,8 @@ public:
 		void EngineDrawOutlinedRect(const int x1, const int y1, const int x2, const int y2, const Color& color);
 
 		void EngineDrawText(const char* text, const int x, const int y, const Color& color);
+		void EngineDrawTextFitted(const char* text, const int x, const int y, int maxWidth, const Color& color);
+		int EngineGetTextWidth(const char* text) const;
 
 		void EngineDrawLine(const int x, const int y, const int x1, const int y1, const Color& color);
 
