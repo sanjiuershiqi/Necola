@@ -208,12 +208,12 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 退化为 `witch_killed.melee_only` 与死亡事件字段推断。
 
 击杀先分类为普通枪械、爆头、近战或爆炸；只有特感枪械和爆头参与连杀，3 秒窗口内第二杀起改用
-`skeeto/si/cf/2kill..10kill` 图标与同名音效。近战和爆炸始终显示专用效果，且不改变现有连杀计数；
-普通感染者不参与连杀。图标与音效来自外部 addon `skeeto_killfeed.vpk`（`skeeto/ci/cf/*` 与
-`skeeto/si/cf/*`）。`EngineVGui::Paint` 通过
-`IMatSystemSurface::DrawSetTextureFile()` 让 VGUI 自行加载当前图标，再用 `DrawTexturedRect()`
-绘制 1 秒；不调用 `IMaterialSystem`、不修改全局 `r_screenoverlay`，也不依赖 SourceMod。声音通过 VGUI
-本地播放接口输出。动画使用 `GlobalVars->realtime`，连杀窗口使用 `curtime`。
+主题 JSON 的 `streak_N` 样式。近战和爆炸始终显示专用效果，且不改变现有连杀计数；普通感染者
+不参与连杀。主题从外部 addon `skeeto_killfeed.vpk` 的 `skeeto/skeeto_*.json` 加载，样式按
+`hit -> streak/kill -> melee -> headshot` 和 priority 覆盖规则选择。渲染忠实使用 skeeto 的
+`r_screenoverlay` 命令、70ms 节流和到期泵（kill 240ms、hit 110ms、主题可覆盖 duration）；音效通过
+解锁后的 `play` 命令输出。`r_screenoverlay/play/playvol` 一次性清除 `FCVAR_CHEAT` 并添加
+`FCVAR_CLIENTCMD_CAN_EXECUTE`，不使用粒子。
 
 ## 八、配置与日志
 

@@ -148,6 +148,11 @@ void InGameMenu::InitConfigSwitches() {
 		killFeedbackMenu->setSwitchStateByName("图标显示", G::Vars.killFeedbackIcon);
 		killFeedbackMenu->setSwitchStateByName("击杀音效", G::Vars.killFeedbackSound);
 	}
+	auto hitTipMenu = FindMenuById("kill_hit_tip");
+	if (hitTipMenu) {
+		hitTipMenu->setSwitchStateByName("特感命中提示", G::Vars.killFeedbackHitSpecial);
+		hitTipMenu->setSwitchStateByName("普感命中提示", G::Vars.killFeedbackHitCommon);
+	}
 	auto killMethodMenu = FindMenuById("kill_feedback_methods");
 	if (killMethodMenu) {
 		for (const auto& [label, setting] : KillFeedbackMethodSwitches()) {
@@ -165,9 +170,10 @@ void InGameMenu::InitConfigSwitches() {
 		hitFeedbackMenu->setSwitchStateByName("启用命中反馈", G::Vars.hitFeedbackEnabled);
 		hitFeedbackMenu->setSwitchStateByName("伤害数字", G::Vars.hitFeedbackNumbers);
 		hitFeedbackMenu->setSwitchStateByName("命中标记", G::Vars.hitFeedbackHitMarker);
-		hitFeedbackMenu->setSwitchStateByName("普通感染者也显示", G::Vars.hitFeedbackCommon);
+		hitFeedbackMenu->setSwitchStateByName("普通感染者伤害数字", G::Vars.hitFeedbackCommon);
 	}
 	RefreshRootLabels();
+	RefreshKillFeedbackLabels();
 	RefreshCrosshairModeUI();
 	RefreshAppearanceLabels();
 }

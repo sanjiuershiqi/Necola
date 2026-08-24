@@ -657,12 +657,17 @@ public:
 			auto siThemeMenu = killFeedbackMenu->addSubMenu("特感主题", "kill_si_theme", "特感主题");
 			registerMenu(siThemeMenu);
 			if (siThemeMenu) {
-				siThemeMenu->addOption("关闭", []() { F::KillFeedbackMgr.SetTheme("si", "off"); });
-				for (const auto& theme : F::KillFeedbackMgr.Themes()) {
-					if (theme.channel != "si") continue;
-					std::string id = theme.id;
-					siThemeMenu->addOption(theme.name.c_str(), [id]() {
+				const std::pair<const char*, const char*> themes[] = {
+					{"关闭", "off"}, {"特感 · CF", "si_cf"}, {"特感 · 瓦罗兰特", "si_valorant"},
+					{"特感 · 闪电", "si_lightning"}, {"特感 · 爱心", "si_love"},
+					{"特感 · 星星", "si_star"}, {"特感 · BF1", "si_bf1_advanced"},
+					{"特感 · BF2042", "si_bf2042_advanced"},
+					{"特感 · 三角洲", "si_deltaforce_advanced"},
+				};
+				for (const auto& [label, id] : themes) {
+					siThemeMenu->addOption(label, [this, id]() {
 						F::KillFeedbackMgr.SetTheme("si", id);
+						RefreshKillFeedbackLabels();
 					});
 				}
 			}
@@ -670,12 +675,17 @@ public:
 			auto ciThemeMenu = killFeedbackMenu->addSubMenu("普感主题", "kill_ci_theme", "普感主题");
 			registerMenu(ciThemeMenu);
 			if (ciThemeMenu) {
-				ciThemeMenu->addOption("关闭", []() { F::KillFeedbackMgr.SetTheme("ci", "off"); });
-				for (const auto& theme : F::KillFeedbackMgr.Themes()) {
-					if (theme.channel != "ci") continue;
-					std::string id = theme.id;
-					ciThemeMenu->addOption(theme.name.c_str(), [id]() {
+				const std::pair<const char*, const char*> themes[] = {
+					{"关闭", "off"}, {"普感 · CF", "ci_cf"}, {"普感 · Apex", "ci_apex"},
+					{"普感 · BF1", "ci_bf1"}, {"普感 · BF2042", "ci_bf2042"},
+					{"普感 · BF5", "ci_bf5"}, {"普感 · COD", "ci_cod"},
+					{"普感 · 三角洲", "ci_deltaforce"}, {"普感 · L4D2", "ci_l4d2"},
+					{"普感 · OW", "ci_ow"},
+				};
+				for (const auto& [label, id] : themes) {
+					ciThemeMenu->addOption(label, [this, id]() {
 						F::KillFeedbackMgr.SetTheme("ci", id);
+						RefreshKillFeedbackLabels();
 					});
 				}
 			}
@@ -683,19 +693,21 @@ public:
 			auto hitTipMenu = killFeedbackMenu->addSubMenu("命中提示", "kill_hit_tip", "命中提示");
 			registerMenu(hitTipMenu);
 			if (hitTipMenu) {
-				hitTipMenu->addOption("仅击杀时", []() {
+				hitTipMenu->addOption("仅击杀时", [this]() {
 					G::Vars.killFeedbackHitMode = 1;
 					F::KillFeedbackMgr.SaveConfig();
+					RefreshKillFeedbackLabels();
 				});
-				hitTipMenu->addOption("击杀+每次命中", []() {
+				hitTipMenu->addOption("击杀+每次命中", [this]() {
 					G::Vars.killFeedbackHitMode = 2;
 					F::KillFeedbackMgr.SaveConfig();
+					RefreshKillFeedbackLabels();
 				});
-				hitTipMenu->addSwitch("特感命中提示", &G::Vars.killFeedbackHitSpecial, [](bool state) {
+				hitTipMenu->addSwitch("特感命中提示", G::Vars.killFeedbackHitSpecial, [](bool state) {
 					G::Vars.killFeedbackHitSpecial = state;
 					F::KillFeedbackMgr.SaveConfig();
 				});
-				hitTipMenu->addSwitch("普感命中提示", &G::Vars.killFeedbackHitCommon, [](bool state) {
+				hitTipMenu->addSwitch("普感命中提示", G::Vars.killFeedbackHitCommon, [](bool state) {
 					G::Vars.killFeedbackHitCommon = state;
 					F::KillFeedbackMgr.SaveConfig();
 				});
@@ -745,7 +757,7 @@ public:
 			addHitSwitch(hitFeedbackMenu, "启用命中反馈", &G::Vars.hitFeedbackEnabled);
 			addHitSwitch(hitFeedbackMenu, "伤害数字", &G::Vars.hitFeedbackNumbers);
 			addHitSwitch(hitFeedbackMenu, "命中标记", &G::Vars.hitFeedbackHitMarker);
-			addHitSwitch(hitFeedbackMenu, "普通感染者也显示", &G::Vars.hitFeedbackCommon);
+			addHitSwitch(hitFeedbackMenu, "普通感染者伤害数字", &G::Vars.hitFeedbackCommon);
 		}
 
 		auto toolsMenu = rootMenu->addSubMenu("诊断与工具", "tools", "诊断与工具");
@@ -820,6 +832,17 @@ public:
 			(G::Vars.killFeedbackEnabled ? "开]" : "关]"));
 		rootMenu->updateSubMenuItemName("hit_feedback", std::string("命中反馈 [") +
 			(G::Vars.hitFeedbackEnabled ? "开]" : "关]"));
+	}
+
+	void RefreshKillFeedbackLabels() {
+		auto menu = FindMenuById("kill_feedback");
+		if (!menu) return;
+		menu->updateSubMenuItemName("kill_si_theme", std::string("特感主题 [") +
+			F::KillFeedbackMgr.SelectedTheme("si") + "]");
+		menu->updateSubMenuItemName("kill_ci_theme", std::string("普感主题 [") +
+			F::KillFeedbackMgr.SelectedTheme("ci") + "]");
+		menu->updateSubMenuItemName("kill_hit_tip", std::string("命中提示 [") +
+			(G::Vars.killFeedbackHitMode >= 2 ? "击杀+命中]" : "仅击杀]"));
 	}
 
 	void RefreshCrosshairModeUI() {

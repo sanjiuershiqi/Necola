@@ -202,10 +202,12 @@ void KillFeedback::LoadThemes() {
 			if (theme.channel == "si" && theme.id.rfind("si_", 0) == 0) {
 				const std::string shortName = theme.id.substr(3);
 				auto prefer = [&](KillStyle& style, const char* material) {
-					char probe[96] = {};
-					_snprintf_s(probe, sizeof(probe), _TRUNCATE,
+					char overlay[96] = {};
+					char probe[128] = {};
+					_snprintf_s(overlay, sizeof(overlay), _TRUNCATE,
 						"skeeto/si/%s/%s", shortName.c_str(), material);
-					if (I::FileSystem->FileExists(probe)) style.overlay = probe;
+					_snprintf_s(probe, sizeof(probe), _TRUNCATE, "materials/%s.vmt", overlay);
+					if (I::FileSystem->FileExists(probe)) style.overlay = overlay;
 				};
 				for (int i = 1; i <= 10; ++i) {
 					if (!theme.streak[i].enabled) continue;
@@ -276,7 +278,7 @@ bool KillFeedback::HitCheck(const KillTheme& theme, const char* eventName, bool 
 }
 
 void KillFeedback::PlaySoundVol(const char* sound) {
-	if (!sound || !*sound || !I::EngineClient) return;
+	if (!G::Vars.killFeedbackSound || !sound || !*sound || !I::EngineClient) return;
 	const char* relative = sound;
 	if (std::strncmp(sound, "sound/", 6) == 0) relative = sound + 6;
 	if (!*relative) return;
@@ -321,7 +323,7 @@ bool KillFeedback::HitFeedbackCheck(const char* channel, bool kill, bool headsho
 	if (!G::Vars.killFeedbackEnabled) return false;
 	if (!G::Vars.killFeedbackSound && !G::Vars.killFeedbackIcon) return false;
 	if (!kill && G::Vars.killFeedbackHitMode < 2) return false;
-	if (!G::Vars.killFeedbackHitOverlay) return false;
+	if (!kill && !G::Vars.killFeedbackHitOverlay) return false;
 	if (!G::Vars.killFeedbackHitSpecial && channel[0] == 's') return false;
 	if (!G::Vars.killFeedbackHitCommon && channel[0] == 'c') return false;
 	if (I::EngineClient && (!I::EngineClient->IsConnected() || !I::EngineClient->IsInGame())) {

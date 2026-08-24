@@ -19,7 +19,7 @@
 - 总开关默认关闭。
 - “普通感染者”和“特殊感染者（含 Witch）”分别控制目标类型。
 - “特感分类设置”可分别控制 Smoker、Boomer、Hunter、Spitter、Jockey、Charger、Tank 和 Witch。
-- 视觉动画和击杀音效可以独立关闭。
+- 图标显示和音效可以独立关闭；主题选项会直接切换 VPK 中不同的图标/音效配置。
 - 普通枪械、爆头、近战、爆炸和连杀效果可以分别关闭；关闭后该类击杀不触发，也不回退普通效果。
 - “测试效果”可预览八种图标与声音（普通/特感的击杀、爆头、近战，特感三连与十连杀）。
 
@@ -47,8 +47,10 @@
 - `witch_killed` 处理 Witch；其击杀方式由最近一次本地 `infected_hurt` 记录判断。
 - 连杀窗口默认 3 秒，回合开始、任务失败和地图过渡时清空。
 - 只有普通枪械和爆头计入连杀；近战与爆炸始终显示各自图标，不增加也不重置现有连杀计数。
-- 图标为单帧全屏素材，每次显示 1 秒，按素材原始 2:1 比例居中绘制，不占用全局 `r_screenoverlay`。
-- 当屏幕宽度超过 2048 时保持 2048 宽度上限，避免将素材放大到 4K 后变模糊。
+- 图标使用 skeeto 原版 `r_screenoverlay` 路径：击杀默认显示 240ms，命中默认 110ms，主题 JSON
+  可通过 `overlay_ms` 覆盖；不同 overlay 之间有 70ms 节流，到期自动执行 `r_screenoverlay off`。
+- 初始化时按 skeeto 的 `Cmd_PlaySound` 逻辑一次性解锁 `r_screenoverlay`、`play`、`playvol`：清除
+  `FCVAR_CHEAT` 并添加 `FCVAR_CLIENTCMD_CAN_EXECUTE`，因此远程服务器也能本地显示和播放。
 
 素材缺失时不会影响 ADS、菜单或战役计时器；可通过“测试效果”逐项检查 `skeeto_killfeed.vpk`
 是否安装完整。
