@@ -125,6 +125,8 @@ private:
 	bool m_overlayActive = false;
 	bool m_commandsUnlocked = false;
 	bool m_themesLoaded = false;
+	float m_lastThemeLoadAttempt = -1000.0f;
+	bool m_themeFailureReported = false;
 	float m_lastKillTime = -1000.0f;
 	int m_streak = 0;
 	struct DamageRecord {

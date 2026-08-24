@@ -120,11 +120,14 @@ bool KillFeedback::UnlockCommands() {
 
 void KillFeedback::LoadThemes() {
 	if (m_themesLoaded) return;
-	m_themesLoaded = true;
 	if (!I::FileSystem) {
 		KFLog("theme load skipped: FileSystem unavailable");
 		return;
 	}
+	const float now = PresentationTime();
+	if (now - m_lastThemeLoadAttempt < 2.0f) return;
+	m_lastThemeLoadAttempt = now;
+	m_themes.clear();
 	const char* const ids[] = {
 		"si_cf", "si_valorant", "si_lightning", "si_love", "si_star",
 		"si_bf1_advanced", "si_bf2042_advanced", "si_deltaforce_advanced",
@@ -228,6 +231,7 @@ void KillFeedback::LoadThemes() {
 			KFLog("theme %s parse failed", id);
 		}
 	}
+	m_themesLoaded = !m_themes.empty();
 	KFLog("theme load complete count=%d", static_cast<int>(m_themes.size()));
 }
 
@@ -245,6 +249,7 @@ const std::string& KillFeedback::SelectedTheme(const char* channel) const {
 void KillFeedback::SetTheme(const char* channel, const std::string& themeId) {
 	if (channel[0] == 's') m_siTheme = themeId;
 	else m_ciTheme = themeId;
+	m_themeFailureReported = false;
 	SaveConfig();
 }
 
@@ -324,15 +329,26 @@ bool KillFeedback::HitFeedbackCheck(const char* channel, bool kill, bool headsho
 	if (!G::Vars.killFeedbackSound && !G::Vars.killFeedbackIcon) return false;
 	if (!kill && G::Vars.killFeedbackHitMode < 2) return false;
 	if (!kill && !G::Vars.killFeedbackHitOverlay) return false;
-	if (!G::Vars.killFeedbackHitSpecial && channel[0] == 's') return false;
-	if (!G::Vars.killFeedbackHitCommon && channel[0] == 'c') return false;
+	if (!kill && !G::Vars.killFeedbackHitSpecial && channel[0] == 's') return false;
+	if (!kill && !G::Vars.killFeedbackHitCommon && channel[0] == 'c') return false;
 	if (I::EngineClient && (!I::EngineClient->IsConnected() || !I::EngineClient->IsInGame())) {
 		return false;
 	}
 	LoadThemes();
 	if (!UnlockCommands()) return false;
 	const KillTheme* theme = FindTheme(channel, SelectedTheme(channel));
-	if (!theme) return false;
+	if (!theme) {
+		if (!m_themeFailureReported) {
+			m_themeFailureReported = true;
+			if (I::Cvars) I::Cvars->ConsolePrintf(
+				"[Necola] KillFeedback theme '%s' not found. Install skeeto_killfeed.vpk in left4dead2/addons and restart.\n",
+				SelectedTheme(channel).c_str());
+			KFLog("theme missing channel=%s selected=%s loaded=%d", channel,
+				SelectedTheme(channel).c_str(), static_cast<int>(m_themes.size()));
+		}
+		return false;
+	}
+	m_themeFailureReported = false;
 	KillStyle style;
 	if (!HitCheck(*theme, kill ? "kill" : "hit", headshot, melee, streak, style)) return false;
 	RenderScreenOverlay(style, kill ? KILL_DURATION_MS : HIT_DURATION_MS, kill);
@@ -807,6 +823,7 @@ void KillFeedback::Reset() {
 	m_lastCommonEntityId = 0;
 	m_lastCommonKillTime = -1000.0f;
 	m_lastVictimRefresh = -1000.0f;
+	m_themeFailureReported = false;
 }
 
 bool KillFeedback::InitListeners() {

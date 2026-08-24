@@ -244,7 +244,6 @@ static bool RunLoadBody()
 		F::MenuMgr.LoadConfig(doc);
 		F::KillFeedbackMgr.LoadConfig(doc);
 		F::HitFeedbackMgr.LoadConfig(doc);
-		F::KillFeedbackMgr.LoadThemes();
 	}
 	ELog("Step 6 done");
 
