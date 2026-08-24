@@ -5,6 +5,7 @@
 #include "../../Feature/CampaignTimer/CampaignTimer.h"
 #include "../../Feature/KillFeedback/KillFeedback.h"
 #include "../../Feature/HitFeedback/HitFeedback.h"
+#include "../../../diag.h"
 
 #include <spdlog/spdlog.h>
 
@@ -17,31 +18,50 @@ int MenuDigitFromButton(int keynum) {
 	if (keynum >= KEY_PAD_0 && keynum <= KEY_PAD_9) return keynum - KEY_PAD_0;
 	return -1;
 }
+bool g_loggedNetUpdateEnd = false;
+bool g_loggedRenderStart = false;
 }
 
 void __fastcall BaseClient::LevelInitPreEntity::Detour(void* ecx, void* edx, char const* pMapName)
 {
+	char message[256] = {};
+	_snprintf_s(message, sizeof(message), _TRUNCATE, "MapStage: LevelInitPreEntity enter map=%s",
+		pMapName ? pMapName : "(null)");
+	NecolaDiagLog(message);
+	g_loggedNetUpdateEnd = false;
+	g_loggedRenderStart = false;
 	F::CampaignTimerMgr.OnLevelInitPreEntity(pMapName);
+	NecolaDiagLog("MapStage: LevelInitPreEntity before original");
 	Table.Original<FN>(Index)(ecx, edx, pMapName);
+	NecolaDiagLog("MapStage: LevelInitPreEntity returned");
 }
 
 void __fastcall BaseClient::LevelInitPostEntity::Detour(void* ecx, void* edx)
 {
+	NecolaDiagLog("MapStage: LevelInitPostEntity enter");
 	Table.Original<FN>(Index)(ecx, edx);
+	NecolaDiagLog("MapStage: LevelInitPostEntity original returned");
 	F::CampaignTimerMgr.OnLevelInitPostEntity();
+	NecolaDiagLog("MapStage: LevelInitPostEntity completed");
 }
 
 void __fastcall BaseClient::LevelShutdown::Detour(void* ecx, void* edx)
 {
+	NecolaDiagLog("MapStage: LevelShutdown enter");
 	F::CampaignTimerMgr.OnLevelShutdown();
 	F::KillFeedbackMgr.Reset();
 	F::HitFeedbackMgr.Reset();
 	Table.Original<FN>(Index)(ecx, edx);
+	NecolaDiagLog("MapStage: LevelShutdown completed");
 }
 
 
 void __fastcall BaseClient::FrameStageNotify::Detour(void* ecx, void* edx, ClientFrameStage_t curStage)
 {
+	const bool firstNetUpdate = curStage == FRAME_NET_UPDATE_END && !g_loggedNetUpdateEnd;
+	const bool firstRender = curStage == FRAME_RENDER_START && !g_loggedRenderStart;
+	if (firstNetUpdate) NecolaDiagLog("MapStage: first FRAME_NET_UPDATE_END enter");
+	if (firstRender) NecolaDiagLog("MapStage: first FRAME_RENDER_START enter");
 	switch(curStage)
 	{
 		case FRAME_NET_UPDATE_END:
@@ -57,7 +77,17 @@ void __fastcall BaseClient::FrameStageNotify::Detour(void* ecx, void* edx, Clien
 		}
 		default: break;
 	}
+	if (firstNetUpdate) NecolaDiagLog("MapStage: first FRAME_NET_UPDATE_END before original");
+	if (firstRender) NecolaDiagLog("MapStage: first FRAME_RENDER_START before original");
 	Table.Original<FN>(Index)(ecx, edx, curStage);
+	if (firstNetUpdate) {
+		g_loggedNetUpdateEnd = true;
+		NecolaDiagLog("MapStage: first FRAME_NET_UPDATE_END completed");
+	}
+	if (firstRender) {
+		g_loggedRenderStart = true;
+		NecolaDiagLog("MapStage: first FRAME_RENDER_START completed");
+	}
 }
 
 

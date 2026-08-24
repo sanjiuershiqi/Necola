@@ -14,7 +14,7 @@ void CUtil_Offsets::Init()
 	if (const DWORD dwConVarProxyResult = U::Pattern.Find(_("client.dll"), _("48 E8 89 4E 04 3D 60 89 ? ? 75 2E")))
 		m_dwConVarProxyResult = dwConVarProxyResult - 0x40;
 
-	if (const DWORD dwCParticleSystemMgr = U::Pattern.Find(_("client.dll"), _("0C 8B 0D ? ? ? ? 52 50 E8")))
+	if (const DWORD dwCParticleSystemMgr = U::Pattern.Find(_("client.dll"), _("0C 8B 0D ? ? ? ? 52 50 E8 82 5F")))
 		m_dwCParticleSystemMgr = dwCParticleSystemMgr + 0x3;
 
 

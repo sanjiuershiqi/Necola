@@ -5,6 +5,7 @@
 #include "../../../sdk/l4d2/interfaces/BaseClientDLL.h"
 #include "../../Vars.h"
 #include "../KillFeedback/KillFeedback.h"
+#include "../../../diag.h"
 
 #include <cctype>
 #include <cmath>
@@ -56,6 +57,7 @@ const HitColor kPalette[10] = {
 	{255, 255, 255}, {255, 236, 120}, {255, 208, 0},   {255, 160, 0},  {255, 110, 0},
 	{255, 70, 70},   {235, 40, 40},   {170, 255, 120}, {120, 210, 255}, {215, 140, 255},
 };
+int g_hitEventDiagCount = 0;
 
 std::vector<std::pair<RecvProp*, RecvVarProxyFn>> g_healthProxies;
 
@@ -307,6 +309,13 @@ void HitFeedback::OnGameEvent(IGameEvent* event) {
 	if (!event) return;
 	const char* name = event->GetName();
 	if (!name) return;
+	if (g_hitEventDiagCount < 20) {
+		char message[192] = {};
+		_snprintf_s(message, sizeof(message), _TRUNCATE,
+			"MapStage: HitFeedback event[%d]=%s", g_hitEventDiagCount, name);
+		NecolaDiagLog(message);
+		++g_hitEventDiagCount;
+	}
 
 	if (std::strcmp(name, "round_start") == 0 || std::strcmp(name, "round_end") == 0 ||
 		std::strcmp(name, "mission_lost") == 0 ||

@@ -9,6 +9,7 @@
 #include "../../Feature/CampaignTimer/CampaignTimer.h"
 #include "../../Feature/KillFeedback/KillFeedback.h"
 #include "../../Feature/HitFeedback/HitFeedback.h"
+#include "../../../diag.h"
 
 using namespace Hooks;
 
@@ -39,6 +40,7 @@ struct CrosshairGate {
     int  userValue = 1;   // snapshot taken at the moment of hiding
 };
 CrosshairGate& XHair() { static CrosshairGate g; return g; }
+bool g_loggedFirstInGamePaint = false;
 
 bool InGame() {
     return I::EngineClient && I::EngineClient->IsConnected() && I::EngineClient->IsInGame();
@@ -59,10 +61,14 @@ void EngineVGui::RestoreCrosshairForUnload() {
 
 void __fastcall EngineVGui::Paint::Detour(void* ecx, void* edx, int mode)
 {
+	const bool firstInGamePaint = mode == PAINT_INGAMEPANELS && InGame() && !g_loggedFirstInGamePaint;
+	if (firstInGamePaint) NecolaDiagLog("MapStage: first in-game Paint enter");
 	if (mode == PAINT_INGAMEPANELS) {
 		F::CampaignTimerMgr.UpdateHudMaterials();
 	}
+	if (firstInGamePaint) NecolaDiagLog("MapStage: first in-game Paint before original");
 	Table.Original<FN>(Index)(ecx, edx, mode);
+	if (firstInGamePaint) NecolaDiagLog("MapStage: first in-game Paint original returned");
 
 	if (mode == PAINT_INGAMEPANELS) {
 		const bool wantHide =
@@ -93,10 +99,11 @@ void __fastcall EngineVGui::Paint::Detour(void* ecx, void* edx, int mode)
 		}
 
 		F::KillFeedbackMgr.Draw();
-		F::HitFeedbackMgr.Pump();
+		if (firstInGamePaint) NecolaDiagLog("MapStage: first in-game Paint kill feedback done");
 		if (L4N::Env.HudVisible()) {
 			F::HitFeedbackMgr.Draw();
 		}
+		if (firstInGamePaint) NecolaDiagLog("MapStage: first in-game Paint hit feedback done");
 
 		// In-game menu drawing
 		if (F::MenuMgr.IsVisible() && I::MatSystemSurface) {
@@ -105,7 +112,12 @@ void __fastcall EngineVGui::Paint::Detour(void* ecx, void* edx, int mode)
 			I::MatSystemSurface->GetScreenSize(width, height);
 			F::MenuMgr.SetScreenSize(width, height);
 		}
+		if (firstInGamePaint) NecolaDiagLog("MapStage: first in-game Paint before menu draw");
 		F::MenuMgr.Draw();
+		if (firstInGamePaint) {
+			g_loggedFirstInGamePaint = true;
+			NecolaDiagLog("MapStage: first in-game Paint completed");
+		}
 	}
 }
 

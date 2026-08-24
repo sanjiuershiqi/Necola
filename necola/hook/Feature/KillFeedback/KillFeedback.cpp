@@ -4,6 +4,7 @@
 #include "../../../sdk/l4d2/interfaces/IConVar.h"
 #include "../../../sdk/l4d2/interfaces/EngineTrace.h"
 #include "../../Vars.h"
+#include "../../../diag.h"
 
 #include <algorithm>
 #include <cstdarg>
@@ -22,6 +23,7 @@ constexpr int KILL_DURATION_MS = 240;
 constexpr int HIT_DURATION_MS = 110;
 constexpr uint32_t HITARM_WINDOW_MS = 400;
 constexpr unsigned int COMMON_HIT_TRACE_MASK = 1174421507u;
+int g_killEventDiagCount = 0;
 
 float SimulationTime() {
 	return I::GlobalVars ? I::GlobalVars->curtime : 0.0f;
@@ -738,6 +740,13 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 	if (!event) return;
 	const char* name = event->GetName();
 	if (!name) return;
+	if (g_killEventDiagCount < 20) {
+		char message[192] = {};
+		_snprintf_s(message, sizeof(message), _TRUNCATE,
+			"MapStage: KillFeedback event[%d]=%s", g_killEventDiagCount, name);
+		NecolaDiagLog(message);
+		++g_killEventDiagCount;
+	}
 	FlushPendingSpecialKills();
 
 	if (std::strcmp(name, "round_start") == 0 || std::strcmp(name, "round_end") == 0 ||

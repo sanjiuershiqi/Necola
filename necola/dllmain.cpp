@@ -22,6 +22,7 @@
 #include "sdk/L4NEnv.h"
 #include "hook/Entry.h"
 #include "vars.h"
+#include "diag.h"
 
 
 // ---- Diagnostic logging helpers -------------------------------------------
@@ -72,6 +73,46 @@ void RawLog(const char* msg) {
     CloseHandle(h);
 }
 
+PVOID g_exceptionHandler = nullptr;
+std::atomic_flag g_loggingException = ATOMIC_FLAG_INIT;
+
+LONG CALLBACK LogVectoredException(EXCEPTION_POINTERS* pointers) {
+    if (!pointers || !pointers->ExceptionRecord || !pointers->ContextRecord) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    const DWORD code = pointers->ExceptionRecord->ExceptionCode;
+    if (code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_ILLEGAL_INSTRUCTION &&
+        code != EXCEPTION_STACK_OVERFLOW && code != EXCEPTION_INT_DIVIDE_BY_ZERO &&
+        code != EXCEPTION_FLT_DIVIDE_BY_ZERO) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    if (g_loggingException.test_and_set()) return EXCEPTION_CONTINUE_SEARCH;
+
+    const void* address = pointers->ExceptionRecord->ExceptionAddress;
+    HMODULE module = nullptr;
+    char modulePath[MAX_PATH] = "unknown";
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCSTR>(address), &module) && module) {
+        GetModuleFileNameA(module, modulePath, MAX_PATH);
+    }
+    char message[1024] = {};
+#if defined(_M_IX86)
+    _snprintf_s(message, sizeof(message), _TRUNCATE,
+        "!!! VEH code=0x%08lX address=%p module=%s base=%p offset=0x%08llX EIP=%08lX ESP=%08lX EBP=%08lX",
+        code, address, modulePath, module,
+        module ? static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(address) -
+            reinterpret_cast<std::uintptr_t>(module)) : 0ull,
+        pointers->ContextRecord->Eip, pointers->ContextRecord->Esp, pointers->ContextRecord->Ebp);
+#else
+    _snprintf_s(message, sizeof(message), _TRUNCATE,
+        "!!! VEH code=0x%08lX address=%p module=%s base=%p", code, address, modulePath, module);
+#endif
+    RawLog(message);
+    g_loggingException.clear();
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 // Debug-only log: call sites that would spam every launch (per-module
 // callbacks, cmdline dumps, interface version probes).
 void DbgLog(const char* msg) {
@@ -102,6 +143,10 @@ void InitSpdlog() {
 
 } // namespace
 
+void NecolaDiagLog(const char* message) {
+    if (message) RawLog(message);
+}
+
 
 // ---- Original init pipeline ------------------------------------------------
 static void LoadIniSafe() {
@@ -112,6 +157,11 @@ static void LoadIniSafe() {
 DWORD __stdcall Hook_necola(LPVOID lpParam)
 {
     RawLog("Hook_necola thread started");
+    if (!g_exceptionHandler) {
+        g_exceptionHandler = AddVectoredExceptionHandler(1, LogVectoredException);
+        RawLog(g_exceptionHandler ? "vectored exception diagnostics installed" :
+            "WARN: AddVectoredExceptionHandler failed");
+    }
     // Console window + spdlog are debug-only: a release L4N plugin must not
     // pop a console at every game launch. RawLog/ELog still cover the file.
     if (DebugEnabled()) {
@@ -156,6 +206,10 @@ void Undo_necola()
     RawLog("Undo_necola (DLL detach)");
     try { G::ModuleEntry.undo(); }
     catch (...) { RawLog("ModuleEntry.undo threw"); }
+    if (g_exceptionHandler) {
+        RemoveVectoredExceptionHandler(g_exceptionHandler);
+        g_exceptionHandler = nullptr;
+    }
 }
 
 
