@@ -274,7 +274,6 @@ void KillFeedback::SetTheme(const char* channel, const std::string& themeId) {
 		m_streak = 0;
 	}
 	else m_ciTheme = themeId;
-	m_particlesWarmed = false;
 	m_themeFailureReported = false;
 	SaveConfig();
 }
@@ -357,30 +356,6 @@ void KillFeedback::PrecacheParticles(const KillStyle& style) {
 	};
 	one(style.particle);
 	for (const auto& name : style.particles) one(name);
-}
-
-void KillFeedback::WarmParticles() {
-	if (m_particlesWarmed || !m_themesLoaded || !I::EngineClient ||
-		!I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
-	const float now = PresentationTime();
-	if (m_particleWarmReadyAt < 0.0f) {
-		m_particleWarmReadyAt = now + 2.0f;
-		return;
-	}
-	if (now < m_particleWarmReadyAt) return;
-	auto warmTheme = [&](const KillTheme* theme) {
-		if (!theme) return;
-		PrecacheParticles(theme->hit);
-		PrecacheParticles(theme->kill);
-		PrecacheParticles(theme->headshot);
-		PrecacheParticles(theme->melee);
-		PrecacheParticles(theme->streakDefault);
-		for (int i = 1; i <= 10; ++i) PrecacheParticles(theme->streak[i]);
-	};
-	warmTheme(FindTheme("si", m_siTheme));
-	warmTheme(FindTheme("ci", m_ciTheme));
-	m_particlesWarmed = true;
-	KFLog("particle warm complete count=%d", static_cast<int>(m_precachedParticles.size()));
 }
 
 void KillFeedback::SpawnParticles(const KillStyle& style) {
@@ -1027,8 +1002,6 @@ KillFeedback::SpecialVictim KillFeedback::SpecialVictimFromAbility(const char* a
 }
 
 void KillFeedback::Draw() {
-	LoadThemes();
-	WarmParticles();
 	PumpCommonHitTrace();
 	for (const FeedbackPosition& hit : m_pendingSpecialHits) {
 		m_feedbackPosition = hit;
@@ -1059,8 +1032,6 @@ void KillFeedback::Reset() {
 	m_lastCommonKillTime = -1000.0f;
 	m_lastVictimRefresh = -1000.0f;
 	m_themeFailureReported = false;
-	m_particlesWarmed = false;
-	m_particleWarmReadyAt = -1.0f;
 	m_precachedParticles.clear();
 	m_feedbackPosition = {};
 	m_lastImpactPosition = {};

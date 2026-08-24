@@ -220,9 +220,9 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 `FCVAR_CLIENTCMD_CAN_EXECUTE`。
 
 主题命中与击杀提示拥有独立开关：`KillFeedback.Enabled` 只控制击杀，`HitMode=0/1/2` 独立控制
-关闭/仅 SI/全部主题命中。SI 命中生产端挂接 `CBasePlayer`/`CTerrorPlayer.m_iHealth` RecvProxy，原代理
-始终先执行；血量下降需匹配 180ms 本地 impact 或 400ms `+attack`，再入 32 槽 Paint 队列。
-Common/Witch 命中由本地 `bullet_impact` 延迟 45ms 后通过 `EngineTrace` 确认。独立 `HitFeedback`
+关闭/仅 SI/全部主题命中。SI 命中使用客户端 `player_hurt`；不安装健康 RecvProxy，以避免地图实体创建
+阶段与其他插件的 RecvProp 链冲突。Common/Witch 命中由本地 `bullet_impact` 延迟 45ms 后通过
+`EngineTrace` 确认。独立 `HitFeedback`
 只负责 20 槽伤害数字和红色准星标记，其 `Enabled` 不参与主题解析。
 
 ## 八、配置与日志

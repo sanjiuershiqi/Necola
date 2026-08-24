@@ -256,11 +256,6 @@ static bool RunLoadBody()
 		return false;
 	}
 	ELog("Step 7 done");
-	ELog("Step 7.1: HitFeedback m_iHealth RecvProp proxy");
-	if (!F::HitFeedbackMgr.InstallHealthProxy()) {
-		ELog("WARN: SI health proxy unavailable; local hurt events remain as fallback");
-	}
-	ELog("Step 7.1 done");
 
 	// Initialize ADS subsystem
 	ELog("Step 8: AdsMgr.Init (if enabled)");

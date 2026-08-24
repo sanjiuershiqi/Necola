@@ -56,15 +56,16 @@ SI 连杀计数；特感 streak 是滚动计数并按主题 `wrap` 循环，切�
 - 爆头、近战和爆炸是正交分类；爆头与近战可同时成立，再由主题 priority 决定最终页面。电锯和全部
   标准近战武器名都按 melee 识别，爆炸/燃烧没有专属页面时仍会触发 base kill/streak。
 - 每个本地 SI/Witch `player_death` 都增加 streak，包括近战、爆炸和燃烧；普通感染者不参与。
-- 特感非致死命中优先从 `m_iHealth` RecvProxy 获得，因此不依赖远程服务器是否发送本地
-  `player_hurt`；枪械用 180ms impact 相关性，近战使用本地 `+attack` 的 400ms 窗口。
+- 特感非致死命中使用客户端 `player_hurt`；不在地图实体创建阶段安装额外健康 RecvProxy，避免与
+  L4N/其他插件的 RecvProp 链冲突。远程服务器若不转发该本地事件，击杀提示仍正常，但逐次 SI 命中
+  可能不可用。
 - `HitMode=2` 的普通感染者/Witch 命中使用 `bullet_impact`、45ms 延迟和 `EngineTrace` 确认目标，
   `infected_hurt` 仅作为本地补充。
 - 图标使用 skeeto 原版 `r_screenoverlay` 路径：击杀默认显示 240ms，命中默认 110ms，主题 JSON
   可通过 `overlay_ms` 覆盖；不同命中 overlay 之间有 70ms 节流，到期执行 `r_screenoverlay ""`。
 - `particle`/`particles[]` 使用 skeeto 原版 `DispatchParticleEffect` 通道；CF、Valorant 的击杀/连杀
-  是屏幕粒子，落雷、爱心、星星和 Advanced 主题按 `world=true` 在目标位置生成。进图后会预热
-  当前 SI/CI 主题粒子，避免首次击杀缺图标。
+  是屏幕粒子，落雷、爱心、星星和 Advanced 主题按 `world=true` 在目标位置生成。粒子在实际触发时
+  按需预热，不在地图载入期间批量扫描或预热 VPK。
 - 初始化时按 skeeto 的 `Cmd_PlaySound` 逻辑一次性解锁 `r_screenoverlay`、`play`、`playvol`：清除
   `FCVAR_CHEAT` 并添加 `FCVAR_CLIENTCMD_CAN_EXECUTE`，因此远程服务器也能本地显示和播放。
 

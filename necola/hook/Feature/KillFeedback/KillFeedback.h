@@ -117,7 +117,6 @@ private:
 	void PumpOverlay();
 	void PlaySoundVol(const KillStyle& style);
 	void PrecacheParticles(const KillStyle& style);
-	void WarmParticles();
 	void SpawnParticles(const KillStyle& style);
 	void CaptureFeedbackPosition(IGameEvent* event, int entityIndex);
 	void PumpCommonHitTrace();
@@ -138,8 +137,6 @@ private:
 	bool m_themesLoaded = false;
 	float m_lastThemeLoadAttempt = -1000.0f;
 	bool m_themeFailureReported = false;
-	bool m_particlesWarmed = false;
-	float m_particleWarmReadyAt = -1.0f;
 	int m_streak = 0;
 	struct DamageRecord {
 		KillClassification classification;
