@@ -92,8 +92,8 @@ void __fastcall EngineVGui::Paint::Detour(void* ecx, void* edx, int mode)
 			XHair().hidden = false;
 		}
 
+		F::KillFeedbackMgr.Draw();
 		if (L4N::Env.HudVisible()) {
-			F::KillFeedbackMgr.Draw();
 			F::HitFeedbackMgr.Draw();
 		}
 

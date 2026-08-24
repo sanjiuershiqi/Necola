@@ -83,15 +83,6 @@ void KFLog(const char* format, ...) {
 	CloseHandle(file);
 }
 
-const char* SI_THEME_IDS[] = {
-	"si_cf", "si_valorant", "si_lightning", "si_love", "si_star",
-	"si_bf1_advanced", "si_bf2042_advanced", "si_deltaforce_advanced",
-};
-
-const char* CI_THEME_IDS[] = {
-	"ci_cf", "ci_apex", "ci_bf1", "ci_bf2042", "ci_bf5",
-	"ci_cod", "ci_deltaforce", "ci_l4d2", "ci_ow",
-};
 }
 
 void KillFeedbackListener::FireGameEvent(IGameEvent* event) {
@@ -142,14 +133,25 @@ void KillFeedback::LoadThemes() {
 		};
 		style.overlay = readStr("overlay");
 		style.sound = readStr("sound");
+		const auto sounds = section.find("sounds");
+		if (sounds != section.end() && sounds->is_array()) {
+			for (const auto& value : *sounds) {
+				if (value.is_string() && !value.get<std::string>().empty()) {
+					style.sounds.push_back(value.get<std::string>());
+				}
+			}
+		}
 		const auto priority = section.find("priority");
 		style.priority = priority != section.end() && priority->is_number_integer()
 			? priority->get<int>() : 0;
-		const auto duration = section.find("overlay_ms");
-		if (duration != section.end() && duration->is_number_integer()) {
-			style.duration = std::clamp(duration->get<int>(), 40, 5000);
+		for (const char* key : {"overlay_ms", "duration", "overlay_duration"}) {
+			const auto duration = section.find(key);
+			if (duration != section.end() && duration->is_number_integer()) {
+				style.duration = std::clamp(duration->get<int>(), 0, 5000);
+				break;
+			}
 		}
-		style.enabled = !style.overlay.empty() || !style.sound.empty();
+		style.enabled = !style.overlay.empty() || !style.sound.empty() || !style.sounds.empty();
 	};
 	for (const char* id : ids) {
 		char path[128] = {};
@@ -181,6 +183,9 @@ void KillFeedback::LoadThemes() {
 				const auto wrap = streak->find("wrap");
 				theme.streakWrap = wrap != streak->end() && wrap->is_number_integer()
 					? wrap->get<int>() : 0;
+				const auto priority = streak->find("priority");
+				theme.streakPriority = priority != streak->end() && priority->is_number_integer()
+					? priority->get<int>() : 10;
 			}
 			auto loadStyleFrom = [&](const char* key, KillStyle& style) {
 				const auto it = doc.find(key);
@@ -194,35 +199,11 @@ void KillFeedback::LoadThemes() {
 				char key[16] = {};
 				_snprintf_s(key, sizeof(key), _TRUNCATE, "streak_%d", i);
 				loadStyleFrom(key, theme.streak[i]);
+				if (theme.streak[i].enabled && theme.streak[i].priority == 0) {
+					theme.streak[i].priority = theme.streakPriority != 0 ? theme.streakPriority : 10;
+				}
 			}
 			loadStyleFrom("streak_default", theme.streakDefault);
-
-			// The stock SI themes share the ow overlay because the original
-			// renders streak numbers via particles. Particles are not used
-			// here, so substitute the dedicated full-screen materials that
-			// ship in the same VPK (skeeto/si/cf/1kill..10kill/headshot/
-			// knifed, skeeto/si/valorant/1kill..5kill) when present.
-			if (theme.channel == "si" && theme.id.rfind("si_", 0) == 0) {
-				const std::string shortName = theme.id.substr(3);
-				auto prefer = [&](KillStyle& style, const char* material) {
-					char overlay[96] = {};
-					char probe[128] = {};
-					_snprintf_s(overlay, sizeof(overlay), _TRUNCATE,
-						"skeeto/si/%s/%s", shortName.c_str(), material);
-					_snprintf_s(probe, sizeof(probe), _TRUNCATE, "materials/%s.vmt", overlay);
-					if (I::FileSystem->FileExists(probe)) style.overlay = overlay;
-				};
-				for (int i = 1; i <= 10; ++i) {
-					if (!theme.streak[i].enabled) continue;
-					char material[16] = {};
-					_snprintf_s(material, sizeof(material), _TRUNCATE, "%dkill", i);
-					prefer(theme.streak[i], material);
-				}
-				if (theme.streakDefault.enabled) prefer(theme.streakDefault, "kill");
-				if (theme.headshot.enabled) prefer(theme.headshot, "headshot");
-				if (theme.melee.enabled) prefer(theme.melee, "knifed");
-				if (theme.kill.enabled) prefer(theme.kill, "1kill");
-			}
 
 			theme.loaded = true;
 			KFLog("theme %s loaded (%s, %s)", id, theme.channel.c_str(), theme.name.c_str());
@@ -231,7 +212,7 @@ void KillFeedback::LoadThemes() {
 			KFLog("theme %s parse failed", id);
 		}
 	}
-	m_themesLoaded = !m_themes.empty();
+	m_themesLoaded = m_themes.size() >= 17;
 	KFLog("theme load complete count=%d", static_cast<int>(m_themes.size()));
 }
 
@@ -247,7 +228,10 @@ const std::string& KillFeedback::SelectedTheme(const char* channel) const {
 }
 
 void KillFeedback::SetTheme(const char* channel, const std::string& themeId) {
-	if (channel[0] == 's') m_siTheme = themeId;
+	if (channel[0] == 's') {
+		m_siTheme = themeId;
+		m_streak = 0;
+	}
 	else m_ciTheme = themeId;
 	m_themeFailureReported = false;
 	SaveConfig();
@@ -264,7 +248,7 @@ bool KillFeedback::HitCheck(const KillTheme& theme, const char* eventName, bool 
 	if (std::strcmp(eventName, "hit") == 0) {
 		consider(theme.hit);
 	} else {
-		if (theme.streakEnabled && theme.streakWrap > 0) {
+		if (theme.streakEnabled && theme.streakWrap > 0 && streak > 0) {
 			int index = streak > 0 ? streak : 1;
 			while (index > theme.streakWrap) index -= theme.streakWrap;
 			if (index >= 1 && index <= 10 && theme.streak[index].enabled) {
@@ -282,13 +266,21 @@ bool KillFeedback::HitCheck(const KillTheme& theme, const char* eventName, bool 
 	return true;
 }
 
-void KillFeedback::PlaySoundVol(const char* sound) {
-	if (!G::Vars.killFeedbackSound || !sound || !*sound || !I::EngineClient) return;
-	const char* relative = sound;
-	if (std::strncmp(sound, "sound/", 6) == 0) relative = sound + 6;
+void KillFeedback::PlaySoundVol(const KillStyle& style) {
+	if (!G::Vars.killFeedbackSound || !I::EngineClient) return;
+	if (G::Vars.killFeedbackSoundVolume <= 0) return;
+	const std::size_t count = style.sounds.size() + (style.sound.empty() ? 0u : 1u);
+	if (count == 0) return;
+	const std::size_t index = (static_cast<std::size_t>(GetTickCount()) +
+		static_cast<std::size_t>(m_streak * 31)) % count;
+	const std::string* selected = index < style.sounds.size()
+		? &style.sounds[index] : &style.sound;
+	const char* relative = selected->c_str();
+	if (std::strncmp(relative, "sound/", 6) == 0) relative += 6;
 	if (!*relative) return;
+	const float volume = std::clamp(G::Vars.killFeedbackSoundVolume, 0, 100) / 100.0f;
 	char command[192] = {};
-	_snprintf_s(command, sizeof(command), _TRUNCATE, "play %s", relative);
+	_snprintf_s(command, sizeof(command), _TRUNCATE, "playvol %s %.2f", relative, volume);
 	I::EngineClient->ClientCmd(command);
 }
 
@@ -301,7 +293,7 @@ void KillFeedback::RenderScreenOverlay(const KillStyle& style, int defaultDurati
 
 	// skeeto plays the sound even when icons are disabled, gated by the same
 	// throttle; icons gate only the r_screenoverlay command.
-	PlaySoundVol(style.sound.c_str());
+	PlaySoundVol(style);
 
 	if (!G::Vars.killFeedbackIcon || style.overlay.empty()) return;
 	if (!I::EngineClient) return;
@@ -323,35 +315,65 @@ void KillFeedback::PumpOverlay() {
 	KFLog("overlay cleared");
 }
 
-bool KillFeedback::HitFeedbackCheck(const char* channel, bool kill, bool headshot,
-	bool melee, int streak) {
-	if (!G::Vars.killFeedbackEnabled) return false;
+bool KillFeedback::ResolveCombinedFeedback(bool kill, bool headshot, bool melee,
+	int streak, bool allowSi, bool allowCi) {
+	if (kill ? !G::Vars.killFeedbackEnabled : !G::Vars.hitFeedbackEnabled) return false;
 	if (!G::Vars.killFeedbackSound && !G::Vars.killFeedbackIcon) return false;
-	if (!kill && G::Vars.killFeedbackHitMode < 2) return false;
-	if (!kill && !G::Vars.killFeedbackHitOverlay) return false;
-	if (!kill && !G::Vars.killFeedbackHitSpecial && channel[0] == 's') return false;
-	if (!kill && !G::Vars.killFeedbackHitCommon && channel[0] == 'c') return false;
-	if (I::EngineClient && (!I::EngineClient->IsConnected() || !I::EngineClient->IsInGame())) {
-		return false;
-	}
+	if (!kill && G::Vars.killFeedbackHitMode == 0) return false;
+	if (!kill && G::Vars.killFeedbackHitMode == 1 && !allowSi) return false;
+	if (!I::EngineClient || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return false;
+
 	LoadThemes();
 	if (!UnlockCommands()) return false;
-	const KillTheme* theme = FindTheme(channel, SelectedTheme(channel));
-	if (!theme) {
-		if (!m_themeFailureReported) {
+	KillStyle siStyle;
+	KillStyle ciStyle;
+	bool siValid = false;
+	bool ciValid = false;
+	const bool anySelected = (allowSi && m_siTheme != "off") ||
+		(allowCi && m_ciTheme != "off");
+	if (!anySelected) return false;
+	if (allowSi && m_siTheme != "off") {
+		if (const KillTheme* theme = FindTheme("si", m_siTheme)) {
+			siValid = HitCheck(*theme, kill ? "kill" : "hit", headshot, melee, streak, siStyle);
+		}
+	}
+	if (allowCi && m_ciTheme != "off") {
+		if (const KillTheme* theme = FindTheme("ci", m_ciTheme)) {
+			// Original KillFeed_Track suppresses CI melee when the same kill is a headshot.
+			ciValid = HitCheck(*theme, kill ? "kill" : "hit", headshot,
+				melee && !headshot, 0, ciStyle);
+		}
+	}
+	if (!siValid && !ciValid) {
+		if (!m_themeFailureReported && I::Cvars) {
 			m_themeFailureReported = true;
-			if (I::Cvars) I::Cvars->ConsolePrintf(
-				"[Necola] KillFeedback theme '%s' not found. Install skeeto_killfeed.vpk in left4dead2/addons and restart.\n",
-				SelectedTheme(channel).c_str());
-			KFLog("theme missing channel=%s selected=%s loaded=%d", channel,
-				SelectedTheme(channel).c_str(), static_cast<int>(m_themes.size()));
+			I::Cvars->ConsolePrintf("[Necola] KillFeedback: no SI/CI style resolved. Check skeeto_killfeed.vpk and theme settings.\n");
 		}
 		return false;
 	}
 	m_themeFailureReported = false;
-	KillStyle style;
-	if (!HitCheck(*theme, kill ? "kill" : "hit", headshot, melee, streak, style)) return false;
-	RenderScreenOverlay(style, kill ? KILL_DURATION_MS : HIT_DURATION_MS, kill);
+
+	// Netvar_SnapshotCopy: choose visual base by si_dedicated; then choose the
+	// scalar sound independently by si_sound preference with fallback.
+	KillStyle output;
+	if (G::Vars.killFeedbackSiDedicated && siValid) output = siStyle;
+	else if (ciValid) output = ciStyle;
+	else output = siStyle;
+
+	const std::string* preferredSound = nullptr;
+	if (G::Vars.killFeedbackSiSound && siValid && !siStyle.sound.empty()) {
+		preferredSound = &siStyle.sound;
+	} else if (ciValid && !ciStyle.sound.empty()) {
+		preferredSound = &ciStyle.sound;
+	} else if (siValid && !siStyle.sound.empty()) {
+		preferredSound = &siStyle.sound;
+	}
+	output.sound = preferredSound ? *preferredSound : std::string();
+	output.enabled = !output.overlay.empty() || !output.sound.empty() || !output.sounds.empty();
+	KFLog("combined kill=%d si=%d ci=%d siVisual=%d siSound=%d overlay=%s sound=%s",
+		kill, siValid, ciValid, G::Vars.killFeedbackSiDedicated,
+		G::Vars.killFeedbackSiSound, output.overlay.c_str(), output.sound.c_str());
+	RenderScreenOverlay(output, kill ? KILL_DURATION_MS : HIT_DURATION_MS, kill);
 	return true;
 }
 
@@ -566,7 +588,7 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 
 	const bool killEvent = std::strcmp(name, "infected_death") == 0 ||
 		std::strcmp(name, "player_death") == 0 || std::strcmp(name, "witch_killed") == 0;
-	if (!G::Vars.killFeedbackEnabled) {
+	if (!G::Vars.killFeedbackEnabled && !G::Vars.hitFeedbackEnabled) {
 		if (killEvent) KFLog("event=%s ignored: master switch disabled", name);
 		return;
 	}
@@ -579,13 +601,10 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		m_infectedDamage[entityId] = {hurtMethod, SimulationTime()};
 		if (witch) {
 			KFLog("tracked Witch damage entity=%d method=%s", entityId, MethodName(hurtMethod));
-			// Witch hits feed the special channel (HitFeedback_Check2).
-			HitFeedbackCheck("si", false, hurtMethod == KillMethod::Headshot,
-				hurtMethod == KillMethod::Melee, 0);
 		}
-		if (G::Vars.killFeedbackHitCommon) {
-			HitFeedbackCheck("ci", false, hurtMethod == KillMethod::Headshot,
-				hurtMethod == KillMethod::Melee, 0);
+		if (G::Vars.killFeedbackHitMode >= 2) {
+			ResolveCombinedFeedback(false, hurtMethod == KillMethod::Headshot,
+				hurtMethod == KillMethod::Melee, 0, false, true);
 		}
 		return;
 	}
@@ -622,9 +641,11 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 			m_pendingSpecialKills.erase(victimUserId);
 			HandleSpecialKill(victim, hurtMethod, victimUserId, "player_hurt");
 		} else {
-			// Living special infected hit (HitFeedback_Check2).
-			HitFeedbackCheck("si", false, hurtMethod == KillMethod::Headshot,
-				hurtMethod == KillMethod::Melee, 0);
+			// HitFeedback_Check2: an SI target resolves both SI and CI candidates.
+			if (G::Vars.killFeedbackHitMode >= 1) {
+				ResolveCombinedFeedback(false, hurtMethod == KillMethod::Headshot,
+					hurtMethod == KillMethod::Melee, 0, true, true);
+			}
 		}
 		return;
 	}
@@ -721,33 +742,25 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 }
 
 void KillFeedback::Trigger(bool special, KillMethod method, int streak) {
-	const bool meleeOnly = method == KillMethod::Melee && method != KillMethod::Explosion;
+	const bool meleeOnly = method == KillMethod::Melee;
 	const bool headshot = method == KillMethod::Headshot;
 	if (method == KillMethod::Melee || method == KillMethod::Explosion) {
-		if (method == KillMethod::Explosion) {
-			// skeeto has no explosion styles; explosions fall through to the
-			// plain kill style on both channels.
-			HitFeedbackCheck("si", true, false, false, streak);
-			HitFeedbackCheck("ci", true, false, false, 0);
-		} else {
-			HitFeedbackCheck(special ? "si" : "ci", true, false, true, streak);
-		}
+		ResolveCombinedFeedback(true, false, meleeOnly, streak,
+			special, true);
 		KFLog("trigger method-only method=%s special=%d streak=%d", MethodName(method),
 			special, m_streak);
 		return;
 	}
-
-	const float now = SimulationTime();
-	if (now - m_lastKillTime <= G::Vars.killFeedbackWindow) {
-		m_streak = std::min(m_streak + 1, 10);
-	} else {
-		m_streak = 1;
+	if (!special) {
+		ResolveCombinedFeedback(true, headshot, meleeOnly, 0, false, true);
+		return;
 	}
-	m_lastKillTime = now;
-	const int streakValue = std::max(1, streak > 0 ? streak : m_streak);
+	m_streak = m_streak < 1000000 ? m_streak + 1 : 1;
+	const int streakValue = G::Vars.killFeedbackMultiKill
+		? std::max(1, streak > 0 ? streak : m_streak) : 0;
 	KFLog("trigger streak=%d method=%s special=%d", m_streak, MethodName(method), special);
-	HitFeedbackCheck("si", true, headshot, meleeOnly, streakValue);
-	HitFeedbackCheck("ci", true, headshot, meleeOnly, 0);
+	ResolveCombinedFeedback(true, headshot, meleeOnly, streakValue,
+		special, true);
 }
 
 const char* KillFeedback::MethodName(KillMethod method) {
@@ -813,7 +826,6 @@ void KillFeedback::Stop() {
 void KillFeedback::Reset() {
 	Stop();
 	m_streak = 0;
-	m_lastKillTime = -1000.0f;
 	m_infectedDamage.clear();
 	m_playerDamage.clear();
 	m_pendingSpecialKills.clear();
@@ -879,7 +891,12 @@ void KillFeedback::Preview(int kind) {
 		default: break;
 	}
 	KFLog("preview requested kind=%d", kind);
-	if (!HitFeedbackCheck(channel, true, headshot, melee, streak)) {
+	const bool previousEnabled = G::Vars.killFeedbackEnabled;
+	G::Vars.killFeedbackEnabled = true;
+	const bool rendered = ResolveCombinedFeedback(true, headshot, melee, streak,
+		channel[0] == 's', true);
+	G::Vars.killFeedbackEnabled = previousEnabled;
+	if (!rendered) {
 		KFLog("preview kind=%d: no style resolved (theme missing or disabled)", kind);
 	}
 }
@@ -896,6 +913,11 @@ void KillFeedback::LoadConfig(const nlohmann::json& doc) {
 		const auto value = section->find(key);
 		return value != section->end() && value->is_string()
 			? value->get<std::string>() : std::string(fallback);
+	};
+	auto readInt = [section](const char* key, int fallback) {
+		const auto value = section->find(key);
+		return value != section->end() && value->is_number_integer()
+			? value->get<int>() : fallback;
 	};
 	G::Vars.killFeedbackEnabled = readBool("Enabled", false);
 	G::Vars.killFeedbackLog = readBool("LogEnabled", false);
@@ -916,20 +938,13 @@ void KillFeedback::LoadConfig(const nlohmann::json& doc) {
 	G::Vars.killFeedbackMelee = readBool("MeleeEnabled", true);
 	G::Vars.killFeedbackExplosion = readBool("ExplosionEnabled", true);
 	G::Vars.killFeedbackMultiKill = readBool("MultiKillEnabled", true);
-	G::Vars.killFeedbackHitMode = std::clamp(readBool("HitMode", true) ? 2 : 1, 1, 2);
-	G::Vars.killFeedbackHitOverlay = readBool("HitOverlayEnabled", true);
-	G::Vars.killFeedbackHitSpecial = readBool("HitSpecialEnabled", true);
-	G::Vars.killFeedbackHitCommon = readBool("HitCommonEnabled", false);
+	G::Vars.killFeedbackHitMode = std::clamp(readInt("HitMode", 1), 0, 2);
+	G::Vars.killFeedbackSiDedicated = readBool("SiDedicated", true);
+	G::Vars.killFeedbackSiSound = readBool("SiSound", true);
+	G::Vars.killFeedbackSoundVolume = std::clamp(readInt("SoundVolume", 100), 0, 100);
 	m_siTheme = readString("SiTheme", "si_cf");
 	m_ciTheme = readString("CiTheme", "ci_cf");
 
-	const auto window = section->find("MultiKillWindow");
-	if (window != section->end() && window->is_number()) {
-		try {
-			G::Vars.killFeedbackWindow = std::clamp(
-				window->get<float>(), 0.5f, 10.0f);
-		} catch (...) {}
-	}
 	KFLog("config loaded si=%s ci=%s", m_siTheme.c_str(), m_ciTheme.c_str());
 }
 
@@ -954,13 +969,12 @@ void KillFeedback::SaveConfig(nlohmann::json& doc) const {
 	section["MeleeEnabled"] = G::Vars.killFeedbackMelee;
 	section["ExplosionEnabled"] = G::Vars.killFeedbackExplosion;
 	section["MultiKillEnabled"] = G::Vars.killFeedbackMultiKill;
-	section["HitMode"] = G::Vars.killFeedbackHitMode >= 2;
-	section["HitOverlayEnabled"] = G::Vars.killFeedbackHitOverlay;
-	section["HitSpecialEnabled"] = G::Vars.killFeedbackHitSpecial;
-	section["HitCommonEnabled"] = G::Vars.killFeedbackHitCommon;
+	section["HitMode"] = G::Vars.killFeedbackHitMode;
+	section["SiDedicated"] = G::Vars.killFeedbackSiDedicated;
+	section["SiSound"] = G::Vars.killFeedbackSiSound;
+	section["SoundVolume"] = G::Vars.killFeedbackSoundVolume;
 	section["SiTheme"] = m_siTheme;
 	section["CiTheme"] = m_ciTheme;
-	section["MultiKillWindow"] = G::Vars.killFeedbackWindow;
 }
 
 void KillFeedback::SaveConfig() const {
@@ -973,10 +987,9 @@ void KillFeedback::SaveConfig() const {
 void KillFeedback::PrintStatus() const {
 	char message[512] = {};
 	_snprintf_s(message, sizeof(message), _TRUNCATE,
-		"enabled=%d si=%s ci=%s themes=%d streak=%d overlayActive=%d window=%.2f",
+		"enabled=%d si=%s ci=%s themes=%d streak=%d overlayActive=%d",
 		G::Vars.killFeedbackEnabled, m_siTheme.c_str(), m_ciTheme.c_str(),
-		static_cast<int>(m_themes.size()), m_streak, m_overlayActive,
-		G::Vars.killFeedbackWindow);
+		static_cast<int>(m_themes.size()), m_streak, m_overlayActive);
 	KFLog("status %s", message);
 	if (I::Cvars) I::Cvars->ConsolePrintf("[Necola] KillFeedback %s\n", message);
 }

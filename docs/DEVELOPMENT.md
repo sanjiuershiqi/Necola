@@ -183,14 +183,19 @@ Necola 不读取 `FeatureConfig.json` 中的 `KeyBinds` 数组，也不会自动
     "ChargerEnabled": true,
     "TankEnabled": true,
     "WitchEnabled": true,
-    "VisualEnabled": true,
+    "IconEnabled": true,
     "SoundEnabled": true,
     "FirearmEnabled": true,
     "HeadshotEnabled": true,
     "MeleeEnabled": true,
     "ExplosionEnabled": true,
     "MultiKillEnabled": true,
-    "MultiKillWindow": 3.0
+    "HitMode": 1,
+    "SiDedicated": true,
+    "SiSound": true,
+    "SoundVolume": 100,
+    "SiTheme": "si_cf",
+    "CiTheme": "ci_cf"
 }
 ```
 

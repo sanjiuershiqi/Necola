@@ -20,6 +20,8 @@
 - “普通感染者”和“特殊感染者（含 Witch）”分别控制目标类型。
 - “特感分类设置”可分别控制 Smoker、Boomer、Hunter、Spitter、Jockey、Charger、Tank 和 Witch。
 - 图标显示和音效可以独立关闭；主题选项会直接切换 VPK 中不同的图标/音效配置。
+- “命中提示”提供 0/1/2 三态：关闭、仅特感命中、全部命中；并可切换 SI 视觉优先、SI 音效优先。
+- 音效音量可设为 0/25/50/75/100%。
 - 普通枪械、爆头、近战、爆炸和连杀效果可以分别关闭；关闭后该类击杀不触发，也不回退普通效果。
 - “测试效果”可预览八种图标与声音（普通/特感的击杀、爆头、近战，特感三连与十连杀）。
 
@@ -30,14 +32,14 @@
 | 普通感染者击杀 | `skeeto/ci/cf/kill` | `sound/skeeto/ci/cf/kill.mp3` |
 | 普通感染者爆头 | `skeeto/ci/cf/headshot` | `sound/skeeto/ci/cf/headshot.mp3` |
 | 普通感染者近战 | `skeeto/ci/cf/melee` | `sound/skeeto/ci/cf/melee.mp3` |
-| 特感击杀（含连杀第 1 杀） | `skeeto/si/cf/1kill` | `sound/skeeto/si/cf/1kill.mp3` |
-| 特感 2~10 连杀 | `skeeto/si/cf/2kill..10kill` | `sound/skeeto/si/cf/2kill..10kill.mp3` |
-| 特感爆头击杀 | `skeeto/si/cf/headshot` | `sound/skeeto/si/cf/headshot.mp3` |
-| 特感近战击杀 | `skeeto/si/cf/knifed` | `sound/skeeto/si/cf/knifed.mp3` |
+| 特感击杀 | SI/CI 候选按“SI视觉优先”合并 | SI/CI 标量声音按“SI音效优先”合并 |
+| 特感连杀 | SI JSON 的 `streak_N` / `streak_default` | 对应 SI 主题声音 |
+| 特感爆头/近战 | SI 和 CI 候选各自按 priority 选择后再合并 | 同上 |
 | 特感爆炸击杀 | 回退当前连杀图标 | 回退对应连杀声音 |
 
-优先级与 skeeto 主题一致：近战 > 爆头 > 连杀 > 普通击杀。普通感染者不参与连杀计数；
-特感连杀窗口默认 3 秒，近战与爆炸不改变连杀计数。
+样式优先级与 skeeto 一致：候选内部按 `streak/kill -> melee -> headshot` 顺序、严格比较 priority；
+SI/CI 候选之间不比较 priority，而由“SI视觉优先”和“SI音效优先”分别合并。普通感染者不参与
+SI 连杀计数；特感 streak 是滚动计数并按主题 `wrap` 循环，切换 SI 主题或回合重置时归零。
 
 ## 运行规则
 
@@ -45,8 +47,7 @@
 - `infected_death` 处理普通感染者。
 - `player_death` 处理 Smoker、Boomer、Hunter、Spitter、Jockey、Charger 和 Tank。
 - `witch_killed` 处理 Witch；其击杀方式由最近一次本地 `infected_hurt` 记录判断。
-- 连杀窗口默认 3 秒，回合开始、任务失败和地图过渡时清空。
-- 只有普通枪械和爆头计入连杀；近战与爆炸始终显示各自图标，不增加也不重置现有连杀计数。
+- 特感普通枪械和爆头增加 streak；近战与爆炸使用专用/普通 kill 样式，不增加也不重置 streak。
 - 图标使用 skeeto 原版 `r_screenoverlay` 路径：击杀默认显示 240ms，命中默认 110ms，主题 JSON
   可通过 `overlay_ms` 覆盖；不同 overlay 之间有 70ms 节流，到期自动执行 `r_screenoverlay off`。
 - 初始化时按 skeeto 的 `Cmd_PlaySound` 逻辑一次性解锁 `r_screenoverlay`、`play`、`playvol`：清除

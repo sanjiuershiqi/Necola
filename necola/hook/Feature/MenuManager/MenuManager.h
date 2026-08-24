@@ -658,11 +658,11 @@ public:
 			registerMenu(siThemeMenu);
 			if (siThemeMenu) {
 				const std::pair<const char*, const char*> themes[] = {
-					{"关闭", "off"}, {"特感 · CF", "si_cf"}, {"特感 · 瓦罗兰特", "si_valorant"},
-					{"特感 · 闪电", "si_lightning"}, {"特感 · 爱心", "si_love"},
-					{"特感 · 星星", "si_star"}, {"特感 · BF1", "si_bf1_advanced"},
-					{"特感 · BF2042", "si_bf2042_advanced"},
-					{"特感 · 三角洲", "si_deltaforce_advanced"},
+					{"关闭", "off"}, {"特感 · 瓦罗兰特", "si_valorant"}, {"特感 · CF", "si_cf"},
+					{"特感 · 落雷", "si_lightning"}, {"特感 · 爱心冲击", "si_love"},
+					{"特感 · 星星", "si_star"}, {"特感 · 三角洲Advanced", "si_deltaforce_advanced"},
+					{"特感 · 战地1Advanced", "si_bf1_advanced"},
+					{"特感 · 战地2042Advanced", "si_bf2042_advanced"},
 				};
 				for (const auto& [label, id] : themes) {
 					siThemeMenu->addOption(label, [this, id]() {
@@ -676,11 +676,11 @@ public:
 			registerMenu(ciThemeMenu);
 			if (ciThemeMenu) {
 				const std::pair<const char*, const char*> themes[] = {
-					{"关闭", "off"}, {"普感 · CF", "ci_cf"}, {"普感 · Apex", "ci_apex"},
-					{"普感 · BF1", "ci_bf1"}, {"普感 · BF2042", "ci_bf2042"},
-					{"普感 · BF5", "ci_bf5"}, {"普感 · COD", "ci_cod"},
-					{"普感 · 三角洲", "ci_deltaforce"}, {"普感 · L4D2", "ci_l4d2"},
-					{"普感 · OW", "ci_ow"},
+					{"关闭", "off"}, {"普感 · OW", "ci_ow"}, {"普感 · Apex", "ci_apex"},
+					{"普感 · CF", "ci_cf"}, {"普感 · COD", "ci_cod"},
+					{"普感 · BF5", "ci_bf5"}, {"普感 · BF1", "ci_bf1"},
+					{"普感 · BF2042", "ci_bf2042"}, {"普感 · 三角洲", "ci_deltaforce"},
+					{"普感 · L4D2", "ci_l4d2"},
 				};
 				for (const auto& [label, id] : themes) {
 					ciThemeMenu->addOption(label, [this, id]() {
@@ -693,24 +693,44 @@ public:
 			auto hitTipMenu = killFeedbackMenu->addSubMenu("命中提示", "kill_hit_tip", "命中提示");
 			registerMenu(hitTipMenu);
 			if (hitTipMenu) {
-				hitTipMenu->addOption("仅击杀时", [this]() {
+				hitTipMenu->addOption("关闭命中提示", [this]() {
+					G::Vars.killFeedbackHitMode = 0;
+					F::KillFeedbackMgr.SaveConfig();
+					RefreshKillFeedbackLabels();
+				});
+				hitTipMenu->addOption("仅特感命中", [this]() {
 					G::Vars.killFeedbackHitMode = 1;
 					F::KillFeedbackMgr.SaveConfig();
 					RefreshKillFeedbackLabels();
 				});
-				hitTipMenu->addOption("击杀+每次命中", [this]() {
+				hitTipMenu->addOption("全部命中", [this]() {
 					G::Vars.killFeedbackHitMode = 2;
 					F::KillFeedbackMgr.SaveConfig();
 					RefreshKillFeedbackLabels();
 				});
-				hitTipMenu->addSwitch("特感命中提示", G::Vars.killFeedbackHitSpecial, [](bool state) {
-					G::Vars.killFeedbackHitSpecial = state;
+				hitTipMenu->addSwitch("SI视觉优先", G::Vars.killFeedbackSiDedicated, [](bool state) {
+					G::Vars.killFeedbackSiDedicated = state;
 					F::KillFeedbackMgr.SaveConfig();
 				});
-				hitTipMenu->addSwitch("普感命中提示", G::Vars.killFeedbackHitCommon, [](bool state) {
-					G::Vars.killFeedbackHitCommon = state;
+				hitTipMenu->addSwitch("SI音效优先", G::Vars.killFeedbackSiSound, [](bool state) {
+					G::Vars.killFeedbackSiSound = state;
 					F::KillFeedbackMgr.SaveConfig();
 				});
+			}
+
+			auto volumeMenu = killFeedbackMenu->addSubMenu("音效音量", "kill_sound_volume", "音效音量");
+			registerMenu(volumeMenu);
+			if (volumeMenu) {
+				const std::pair<const char*, int> volumes[] = {
+					{"静音", 0}, {"25%", 25}, {"50%", 50}, {"75%", 75}, {"100%", 100},
+				};
+				for (const auto& [label, value] : volumes) {
+					volumeMenu->addOption(label, [this, value]() {
+						G::Vars.killFeedbackSoundVolume = value;
+						F::KillFeedbackMgr.SaveConfig();
+						RefreshKillFeedbackLabels();
+					});
+				}
 			}
 
 			auto specialMenu = killFeedbackMenu->addSubMenu("特感分类设置", "kill_feedback_specials", "特感分类设置");
@@ -842,7 +862,10 @@ public:
 		menu->updateSubMenuItemName("kill_ci_theme", std::string("普感主题 [") +
 			F::KillFeedbackMgr.SelectedTheme("ci") + "]");
 		menu->updateSubMenuItemName("kill_hit_tip", std::string("命中提示 [") +
-			(G::Vars.killFeedbackHitMode >= 2 ? "击杀+命中]" : "仅击杀]"));
+			(G::Vars.killFeedbackHitMode == 0 ? "关]" :
+				(G::Vars.killFeedbackHitMode == 1 ? "仅SI命中]" : "全部命中]")));
+		menu->updateSubMenuItemName("kill_sound_volume", std::string("音效音量 [") +
+			std::to_string(G::Vars.killFeedbackSoundVolume) + "%]");
 	}
 
 	void RefreshCrosshairModeUI() {

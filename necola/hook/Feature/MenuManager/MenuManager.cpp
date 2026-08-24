@@ -150,8 +150,8 @@ void InGameMenu::InitConfigSwitches() {
 	}
 	auto hitTipMenu = FindMenuById("kill_hit_tip");
 	if (hitTipMenu) {
-		hitTipMenu->setSwitchStateByName("特感命中提示", G::Vars.killFeedbackHitSpecial);
-		hitTipMenu->setSwitchStateByName("普感命中提示", G::Vars.killFeedbackHitCommon);
+		hitTipMenu->setSwitchStateByName("SI视觉优先", G::Vars.killFeedbackSiDedicated);
+		hitTipMenu->setSwitchStateByName("SI音效优先", G::Vars.killFeedbackSiSound);
 	}
 	auto killMethodMenu = FindMenuById("kill_feedback_methods");
 	if (killMethodMenu) {

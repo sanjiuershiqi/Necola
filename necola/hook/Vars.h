@@ -70,12 +70,11 @@ public:
     bool killFeedbackMelee = true;
     bool killFeedbackExplosion = true;
     bool killFeedbackMultiKill = true;
-    float killFeedbackWindow = 3.0f;
     // Hit overlay: 1 = kills only, 2 = kills + per-hit feedback.
-    int killFeedbackHitMode = 2;
-    bool killFeedbackHitOverlay = true;
-    bool killFeedbackHitSpecial = true;
-    bool killFeedbackHitCommon = false;
+    int killFeedbackHitMode = 1;
+    bool killFeedbackSiDedicated = true;  // original skeeto default: SI visual wins
+    bool killFeedbackSiSound = true;      // true: SI scalar sound wins when available
+    int killFeedbackSoundVolume = 100;
 
     // skeeto-style hit feedback: floating damage numbers + crosshair hit marker.
     bool hitFeedbackEnabled = false;

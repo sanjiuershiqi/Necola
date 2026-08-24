@@ -207,12 +207,13 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 `victimname`。仅本地网络的事件（如 `infected_hurt`）在远程服务器上不会到达，此时 Witch 击杀方式
 退化为 `witch_killed.melee_only` 与死亡事件字段推断。
 
-击杀先分类为普通枪械、爆头、近战或爆炸；只有特感枪械和爆头参与连杀，3 秒窗口内第二杀起改用
-主题 JSON 的 `streak_N` 样式。近战和爆炸始终显示专用效果，且不改变现有连杀计数；普通感染者
-不参与连杀。主题从外部 addon `skeeto_killfeed.vpk` 的 `skeeto/skeeto_*.json` 加载，样式按
-`hit -> streak/kill -> melee -> headshot` 和 priority 覆盖规则选择。渲染忠实使用 skeeto 的
-`r_screenoverlay` 命令、70ms 节流和到期泵（kill 240ms、hit 110ms、主题可覆盖 duration）；音效通过
-解锁后的 `play` 命令输出。`r_screenoverlay/play/playvol` 一次性清除 `FCVAR_CHEAT` 并添加
+击杀先分类为普通枪械、爆头、近战或爆炸；特感普通枪械和爆头增加滚动 streak，再按主题 `wrap`
+选择 `streak_N`。近战和爆炸不改变 streak，普通感染者不参与。主题从外部 addon
+`skeeto_killfeed.vpk` 的 `skeeto/skeeto_*.json` 加载，候选内部按
+`hit -> streak/kill -> melee -> headshot` 和 priority 覆盖；SI/CI 候选再按 `si_dedicated` 选视觉、
+按 `si_sound` 选标量音效。渲染忠实使用 skeeto 的 `r_screenoverlay` 命令、70ms 节流和到期泵
+（kill 240ms、hit 110ms、主题可覆盖 duration）；音效通过解锁后的 `playvol` 输出。
+`r_screenoverlay/play/playvol` 一次性清除 `FCVAR_CHEAT` 并添加
 `FCVAR_CLIENTCMD_CAN_EXECUTE`，不使用粒子。
 
 ## 八、配置与日志

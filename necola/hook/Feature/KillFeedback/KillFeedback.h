@@ -27,7 +27,8 @@ struct KillStyle {
 	bool enabled = false;
 	std::string overlay;
 	std::string sound;
-	int duration = 240;
+	std::vector<std::string> sounds;
+	int duration = 0;
 	int priority = 0;
 };
 
@@ -37,6 +38,7 @@ struct KillTheme {
 	std::string channel;
 	bool streakEnabled = false;
 	int streakWrap = 0;
+	int streakPriority = 10;
 	KillStyle hit;
 	KillStyle kill;
 	KillStyle headshot;
@@ -66,7 +68,8 @@ public:
 	// HitFeedback_Check / HitFeedback_Check2 port: kill=true renders the kill
 	// style (240ms), kill=false renders the hit style (110ms). Returns true
 	// when a style was resolved and rendered.
-	bool HitFeedbackCheck(const char* channel, bool kill, bool headshot, bool melee, int streak);
+	bool ResolveCombinedFeedback(bool kill, bool headshot, bool melee, int streak,
+		bool allowSi, bool allowCi);
 
 	const KillTheme* FindTheme(const char* channel, const std::string& themeId) const;
 	const std::vector<KillTheme>& Themes() const { return m_themes; }
@@ -109,7 +112,7 @@ private:
 		int streak, KillStyle& out) const;
 	void RenderScreenOverlay(const KillStyle& style, int defaultDuration, bool allowRepeat);
 	void PumpOverlay();
-	void PlaySoundVol(const char* sound);
+	void PlaySoundVol(const KillStyle& style);
 	bool UnlockCommands();
 
 	static const char* MethodName(KillMethod method);
@@ -127,7 +130,6 @@ private:
 	bool m_themesLoaded = false;
 	float m_lastThemeLoadAttempt = -1000.0f;
 	bool m_themeFailureReported = false;
-	float m_lastKillTime = -1000.0f;
 	int m_streak = 0;
 	struct DamageRecord {
 		KillMethod method = KillMethod::Firearm;
