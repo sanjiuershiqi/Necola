@@ -93,6 +93,7 @@ void __fastcall EngineVGui::Paint::Detour(void* ecx, void* edx, int mode)
 		}
 
 		F::KillFeedbackMgr.Draw();
+		F::HitFeedbackMgr.Pump();
 		if (L4N::Env.HudVisible()) {
 			F::HitFeedbackMgr.Draw();
 		}

@@ -78,6 +78,7 @@ void HealthProxy(const CRecvProxyData* data, void* structure, void* output) {
 			break;
 		}
 	}
+	if (!original && !g_healthProxies.empty()) original = g_healthProxies.front().second;
 	if (original) original(data, structure, output);
 	else if (output && data) *static_cast<int*>(output) = data->m_Value.m_Int;
 	if (data) F::HitFeedbackMgr.OnHealthChanged(data->m_ObjectID, oldHealth, data->m_Value.m_Int);
@@ -140,6 +141,7 @@ void HitFeedback::UnhookHealthProxy() {
 
 bool HitFeedback::IsLocalHitCorrelated(int entIndex) const {
 	if (entIndex <= 0 || !I::EngineClient || !I::ClientEntityList) return false;
+	if (!I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return false;
 	const std::uint32_t now = NowTick();
 	const bool recentImpact = now - m_lastImpactTick <= 180;
 	const bool recentAttack = now - m_lastAttackTick <= 400;
@@ -186,6 +188,12 @@ void HitFeedback::OnHealthChanged(int entIndex, int oldHealth, int newHealth) {
 	if (oldHealth <= 0 || newHealth >= oldHealth || oldHealth > 100000 || newHealth < 0 ||
 		newHealth > 100000) return;
 	if (!G::Vars.hitFeedbackEnabled && G::Vars.killFeedbackHitMode == 0) return;
+	if (entIndex <= 0 || entIndex > 64) return;
+	if (m_pendingHealthChangeCount >= kMaxPendingHealthChanges) return;
+	m_pendingHealthChanges[m_pendingHealthChangeCount++] = {entIndex, oldHealth, newHealth};
+}
+
+void HitFeedback::ProcessHealthChange(int entIndex, int oldHealth, int newHealth) {
 	if (!IsLocalHitCorrelated(entIndex) || !I::ClientEntityList) return;
 	auto* entity = I::ClientEntityList->GetClientEntity(entIndex);
 	auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
@@ -194,6 +202,15 @@ void HitFeedback::OnHealthChanged(int entIndex, int oldHealth, int newHealth) {
 	float headZ = player->m_vecViewOffset().z;
 	if (headZ < 20.0f || headZ > 120.0f) headZ = 50.0f;
 	ProcessSpecialHit(entIndex, oldHealth - newHealth, origin, headZ + 2.0f, true);
+}
+
+void HitFeedback::PumpHealthChanges() {
+	const int count = m_pendingHealthChangeCount;
+	m_pendingHealthChangeCount = 0;
+	for (int i = 0; i < count; ++i) {
+		const PendingHealthChange change = m_pendingHealthChanges[i];
+		ProcessHealthChange(change.entIndex, change.oldHealth, change.newHealth);
+	}
 }
 
 void HitFeedback::ArmLocalAttack() {
@@ -350,6 +367,10 @@ void HitFeedback::OnGameEvent(IGameEvent* event) {
 	}
 }
 
+void HitFeedback::Pump() {
+	PumpHealthChanges();
+}
+
 void HitFeedback::Draw() {
 	if (!G::Vars.hitFeedbackEnabled || !I::GlobalVars || !I::MatSystemSurface ||
 		!I::EngineClient) return;
@@ -463,6 +484,7 @@ void HitFeedback::Reset() {
 	m_lastSpecialHitEntity = 0;
 	m_lastSpecialHitDamage = 0;
 	m_lastSpecialHitFromProxy = false;
+	m_pendingHealthChangeCount = 0;
 }
 
 void HitFeedback::Shutdown() {

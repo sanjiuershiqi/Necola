@@ -139,6 +139,7 @@ private:
 	float m_lastThemeLoadAttempt = -1000.0f;
 	bool m_themeFailureReported = false;
 	bool m_particlesWarmed = false;
+	float m_particleWarmReadyAt = -1.0f;
 	int m_streak = 0;
 	struct DamageRecord {
 		KillClassification classification;

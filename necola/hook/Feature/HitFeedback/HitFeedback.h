@@ -28,6 +28,7 @@ public:
 	void OnGameEvent(IGameEvent* event);
 	void OnHealthChanged(int entIndex, int oldHealth, int newHealth);
 	void ArmLocalAttack();
+	void Pump();
 	void Draw();
 	void Reset();
 	void Shutdown();
@@ -54,6 +55,8 @@ private:
 
 	void RecordDamage(int entIndex, int damage, float x, float y, float z, float headZ);
 	void ProcessSpecialHit(int entIndex, int damage, const Vector& origin, float headZ, bool fromProxy);
+	void PumpHealthChanges();
+	void ProcessHealthChange(int entIndex, int oldHealth, int newHealth);
 	bool IsLocalHitCorrelated(int entIndex) const;
 	bool IsWitchEntity(int entIndex) const;
 	bool IsSpecialEntity(int entIndex) const;
@@ -73,6 +76,14 @@ private:
 	int m_lastSpecialHitEntity = 0;
 	int m_lastSpecialHitDamage = 0;
 	bool m_lastSpecialHitFromProxy = false;
+	struct PendingHealthChange {
+		int entIndex = 0;
+		int oldHealth = 0;
+		int newHealth = 0;
+	};
+	static constexpr int kMaxPendingHealthChanges = 32;
+	PendingHealthChange m_pendingHealthChanges[kMaxPendingHealthChanges];
+	int m_pendingHealthChangeCount = 0;
 };
 
 namespace F { inline HitFeedback HitFeedbackMgr; }

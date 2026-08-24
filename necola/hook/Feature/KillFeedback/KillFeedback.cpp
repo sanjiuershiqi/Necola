@@ -362,6 +362,12 @@ void KillFeedback::PrecacheParticles(const KillStyle& style) {
 void KillFeedback::WarmParticles() {
 	if (m_particlesWarmed || !m_themesLoaded || !I::EngineClient ||
 		!I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
+	const float now = PresentationTime();
+	if (m_particleWarmReadyAt < 0.0f) {
+		m_particleWarmReadyAt = now + 2.0f;
+		return;
+	}
+	if (now < m_particleWarmReadyAt) return;
 	auto warmTheme = [&](const KillTheme* theme) {
 		if (!theme) return;
 		PrecacheParticles(theme->hit);
@@ -1054,6 +1060,7 @@ void KillFeedback::Reset() {
 	m_lastVictimRefresh = -1000.0f;
 	m_themeFailureReported = false;
 	m_particlesWarmed = false;
+	m_particleWarmReadyAt = -1.0f;
 	m_precachedParticles.clear();
 	m_feedbackPosition = {};
 	m_lastImpactPosition = {};
