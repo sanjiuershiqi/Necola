@@ -5,6 +5,7 @@
 #include "../../Feature/CampaignTimer/CampaignTimer.h"
 #include "../../Feature/KillFeedback/KillFeedback.h"
 #include "../../Feature/HitFeedback/HitFeedback.h"
+#include "../../Feature/SequenceModify/SequenceModify.h"
 #include "../../../diag.h"
 
 #include <spdlog/spdlog.h>
