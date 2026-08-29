@@ -66,7 +66,7 @@ void InspectInitiative::Trigger() {
 	if (!weapon || !local->CanAttackFull() || !weapon->CanPrimaryAttack()) return;
 
 	if (G::Vars.enableAdsSupport && F::AdsMgr.NeedsRemapping()) {
-		auto* viewModelEntity = local->m_hViewModel();
+		auto* viewModelEntity = local->m_hViewModel().Get();
 		auto* viewModel = viewModelEntity ? viewModelEntity->As<C_BaseViewModel*>() : nullptr;
 		auto* anim = viewModel ? viewModel->GetBaseAnimating() : nullptr;
 		if (anim) {
