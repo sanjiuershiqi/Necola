@@ -49,8 +49,27 @@ void InspectInitiative::Shutdown() {
 }
 
 void InspectInitiative::Reset() {
-	// Inspect has no persistent animation state; this is a lifecycle hook for
-	// future weapon-specific queues and keeps map transitions explicit.
+	m_maxAmmo.clear();
+}
+
+void InspectInitiative::FrameUpdate() {
+	if (!G::Vars.openInspect || !I::EngineClient || !I::ClientEntityList ||
+		!I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
+	const int localIndex = I::EngineClient->GetLocalPlayer();
+	if (localIndex <= 0) return;
+	auto* localEntity = I::ClientEntityList->GetClientEntity(localIndex);
+	auto* local = localEntity ? localEntity->As<C_TerrorPlayer*>() : nullptr;
+	if (!local) return;
+	auto* weaponEntity = local->GetActiveWeapon();
+	auto* weapon = weaponEntity ? weaponEntity->As<C_TerrorWeapon*>() : nullptr;
+	if (!weapon) return;
+	const int entityIndex = weapon->entindex();
+	const int current = weapon->m_iClip1();
+	const int maxClip = weapon->GetMaxClip1();
+	if (entityIndex > 0 && maxClip > 0) {
+		auto& cached = m_maxAmmo[entityIndex];
+		cached = std::max(cached, std::max(current, maxClip));
+	}
 }
 
 void InspectInitiative::Trigger() {
