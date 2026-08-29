@@ -50,6 +50,7 @@ public:
     bool openInspect = true;
     int inspectKey = 0x52;
     bool inspectIgnoreAmmo = false;
+    int helpingHandRandom = 0;
 
     // In-game menu appearance.
     int menuAnchor = 0;       // 0=left, 1=center, 2=right

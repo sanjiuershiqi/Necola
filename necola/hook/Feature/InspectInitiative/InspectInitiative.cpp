@@ -18,6 +18,10 @@ void InspectInitiative::LoadConfig(const nlohmann::json& doc) {
 	}
 	const auto ignoreAmmo = section->find("IgnoreAmmo");
 	if (ignoreAmmo != section->end() && ignoreAmmo->is_boolean()) G::Vars.inspectIgnoreAmmo = ignoreAmmo->get<bool>();
+	const auto helpingHand = section->find("HelpingHandRandom");
+	if (helpingHand != section->end() && helpingHand->is_number_integer()) {
+		G::Vars.helpingHandRandom = std::clamp(helpingHand->get<int>(), 0, 100);
+	}
 }
 
 void InspectInitiative::SaveConfig(nlohmann::json& doc) const {
@@ -25,6 +29,7 @@ void InspectInitiative::SaveConfig(nlohmann::json& doc) const {
 	section["Enabled"] = G::Vars.openInspect;
 	section["Key"] = G::Vars.inspectKey;
 	section["IgnoreAmmo"] = G::Vars.inspectIgnoreAmmo;
+	section["HelpingHandRandom"] = G::Vars.helpingHandRandom;
 }
 
 void InspectInitiative::Bind() {
