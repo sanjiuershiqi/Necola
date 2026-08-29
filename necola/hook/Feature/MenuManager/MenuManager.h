@@ -18,6 +18,7 @@
 #include "../AdsSupport/AdsSupport.h"
 #include "../KillFeedback/KillFeedback.h"
 #include "../HitFeedback/HitFeedback.h"
+#include "../InspectInitiative/InspectInitiative.h"
 #include "../../../sdk/utils/FeatureConfigManager.h"
 
 
