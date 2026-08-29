@@ -23,7 +23,8 @@ bool CGlobal_InputManager::Init()
 void CGlobal_InputManager::undo()
 {
 	if (m_windowHooked && m_hwnd && m_old_wnd_proc &&
-		reinterpret_cast<WNDPROC>(GetWindowLongPtrA(m_hwnd, GWLP_WNDPROC)) == hook)
+		reinterpret_cast<WNDPROC>(GetWindowLongPtrA(m_hwnd, GWLP_WNDPROC)) ==
+		reinterpret_cast<WNDPROC>(hook))
 		SetWindowLongPtrA(m_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(m_old_wnd_proc));
 
 	m_old_wnd_proc = nullptr;
