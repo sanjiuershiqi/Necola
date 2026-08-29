@@ -4,9 +4,11 @@
 
 ## 一、这是什么
 
-Necola 是一个 **L4N (Left 4 Neko) 平台的附属插件**，为 Left 4 Dead 2 提供 **ADS（Aim Down Sights，开镜瞄准）** 功能。它不是独立注入的 DLL，而是被 L4N 主平台加载的插件。
+Necola 是一个 **L4N (Left 4 Neko) 平台的附属插件**，为 Left 4 Dead 2 提供 ADS、主题命中/击杀反馈、
+伤害数字/准星、菜单和战役计时等可选功能。它不是独立注入的 DLL，而是被 L4N 主平台加载的插件。
 
-**一句话定位**：L4N 负责在游戏进程中加载 Necola，插件在 Source 引擎模块就绪后通过 MinHook 和 RecvProp proxy 钩取关键路径，实现武器开镜动画、准星隐藏和序列修正。
+**一句话定位**：L4N 负责在游戏进程中加载 Necola，插件在 Source 引擎模块就绪后按功能模块注册接口、
+MinHook、RecvProp proxy 和官方事件监听器；所有游戏版本相关内容集中在 SDK/offset 适配层。
 
 **当前插件版本字符串**：`1.4.0_l4n_plugin`（见 [necola/vars.h](necola/vars.h) 的 `sFixVer`）
 
@@ -32,7 +34,7 @@ Necola 是一个 **L4N (Left 4 Neko) 平台的附属插件**，为 Left 4 Dead 2
 <repository-root>
 ├── xmake.lua                    # 构建配置（xmake，非 CMake）
 ├── justfile                     # 本地构建/安装/发布脚本（just 命令）
-├── kpatch.ini                   # 相对工作目录读取的旧配置；System.debug 当前不控制详细日志
+├── kpatch.ini                   # 兼容旧配置；功能配置以游戏根目录 necola/FeatureConfig.json 为准
 ├── README.md                    # 用户向说明
 ├── PROJECT_HANDBOOK.md          # 本文档
 ├── docs/                        # 详细文档（见下）
@@ -54,6 +56,8 @@ necola/
 │   │
 │   ├── Feature/                 # 功能模块
 │   │   ├── AdsSupport/           # ADS核心：开镜状态机、动画重映射
+│   │   ├── KillFeedback/         # 主题命中/击杀、音效、粒子与事件归因
+│   │   ├── HitFeedback/          # 独立伤害数字与准星命中标记
 │   │   ├── SequenceModify/       # 序列修正（ADS依赖的底层）
 │   │   ├── MenuManager/          # 游戏内菜单UI
 │   │   ├── CommandManager/       # 控制台命令注册
@@ -117,7 +121,7 @@ L4N 是 L4D2 客户端补丁，发行方式包含替换/修补游戏主程序、
 ### 4.2 模块就绪等待
 Source 引擎在启动时分阶段加载多个 DLL（client.dll、engine.dll、vgui2.dll 等）。Necola 需要等关键模块加载完成才能调用 `CreateInterface` 获取引擎接口。
 
-**当前机制**：`OnGameLaunch` 或任意模块回调中先到者通过原子门控尝试创建线程；线程每 1 秒通过 `GetModuleHandleA` 检查 8 个模块，最多 120 次。超时会中止初始化；线程创建失败会释放门控，允许后续回调重试。没有条件变量或回调唤醒。
+**当前机制**：`OnGameLaunch` 或任意模块回调中先到者通过原子门控尝试创建线程；线程每 1 秒通过 `GetModuleHandleA` 检查 9 个模块，最多 120 次。超时会中止初始化；线程创建失败会释放门控，允许后续回调重试。没有条件变量或回调唤醒。该线程目前按进程生命周期运行，运行时热卸载不受支持。
 
 ### 4.3 Source 引擎接口
 通过 `CreateInterface(modname, interfaceName)` 获取引擎接口指针。例如：

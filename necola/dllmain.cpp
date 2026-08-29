@@ -56,9 +56,14 @@ bool DebugEnabled() {
 // using Win32 CreateFile (no CRT state, no exceptions). Flushes each line.
 void RawLog(const char* msg) {
     static std::string path = ResolveLogPath();
+    static SRWLOCK logLock = SRWLOCK_INIT;
+    AcquireSRWLockExclusive(&logLock);
     HANDLE h = CreateFileA(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
                            nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return;
+    if (h == INVALID_HANDLE_VALUE) {
+        ReleaseSRWLockExclusive(&logLock);
+        return;
+    }
     SYSTEMTIME st;
     GetLocalTime(&st);
     char line[2048];
@@ -71,6 +76,7 @@ void RawLog(const char* msg) {
         WriteFile(h, line, (DWORD)n, &written, nullptr);
     }
     CloseHandle(h);
+    ReleaseSRWLockExclusive(&logLock);
 }
 
 PVOID g_exceptionHandler = nullptr;

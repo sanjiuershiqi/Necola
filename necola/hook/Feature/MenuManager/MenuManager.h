@@ -66,14 +66,14 @@ struct MenuItem {
 	bool enabled;
 
 	MenuItem(const std::string& n, std::function<void()> act = nullptr, bool en = true)
-		: name(n), type(ITEM_NORMAL), action(act), subMenu(nullptr), switchState(false), enabled(en) {}
+		: name(n), type(ITEM_NORMAL), action(act), toggleAction(nullptr), subMenu(nullptr), switchState(false), enabled(en) {}
 
 	MenuItem(const std::string& n, bool initialState, std::function<void(bool)> toggleFunc, bool en = true)
-		: name(n), type(ITEM_SWITCH), toggleAction(toggleFunc), subMenu(nullptr),
+		: name(n), type(ITEM_SWITCH), action(nullptr), toggleAction(toggleFunc), subMenu(nullptr),
 		  switchState(initialState), enabled(en) {}
 
 	MenuItem(const std::string& n, std::shared_ptr<class MenuNode> sub, bool en = true)
-		: name(n), type(ITEM_SUBMENU), action(nullptr), subMenu(sub), switchState(false), enabled(en) {}
+		: name(n), type(ITEM_SUBMENU), action(nullptr), toggleAction(nullptr), subMenu(sub), switchState(false), enabled(en) {}
 
 	void toggle() {
 		if (type == ITEM_SWITCH) {

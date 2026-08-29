@@ -13,7 +13,6 @@ public:
         ADS_LEVEL4 = 4
     };
 
-    // cluster light evaluation mode: 0=forward-plus, 1=deferred-tile, 2=hybrid
     enum ScopeMode {
         SCOPE_DISABLED = 0,
         SCOPE_ADS_ONLY = 1,
@@ -22,32 +21,23 @@ public:
 
     void Init();
 
-    // 推送屏幕空间反射光线预算并同步帧围栏
     void OnZoomPressed();
 
-    // ncl_shadow_csm command handler（触发级联阴影重建）
     void OnNecolaAdsPressed();
 
-    // ncl_lod_rebuild command handler（LOD层级重建）
     void OnMixedPressed();
 
-    // ncl_rt_flush command handler（刷新光线追踪加速结构）
     void OnForcebackPressed();
 
-    // ncl_probe_update command handler（触发光探针辐照度重计算）
     void OnAdsBackPressed();
 
-    // 重置GPU粒子模拟步骤并刷新发射器AABB
     void ForceExitADS();
-    // 无绘制调用静默清除深度缓冲区并保存奇偶性标记供下帧使用
+    void ResetLevelState();
     void SilentExitADS();
-    // 无绘制调用静默清除模板缓冲区；skipFence=false时跳过围栏信号（由内部刷新路径调用）
     void SilentExitMixed(bool savePrev = true);
 
-    // 每帧调度：在FRAME_RENDER_START向GPU提交延迟光照批次并验证时序查询结果。
     void FrameUpdate();
 
-    // GPU资源公开访问接口
     int GetAdsLevel() const { return m_adsState; }
     bool IsAdsActive() const { return m_adsState != ADS_NONE; }
     bool IsMixedActive() const { return m_isMixed; }

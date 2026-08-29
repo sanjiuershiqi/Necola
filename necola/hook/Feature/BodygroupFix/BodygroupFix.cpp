@@ -58,13 +58,18 @@ void BodygroupFixManager::ApplyBodygroups(C_BaseAnimating* viewModel) {
 }
 
 void BodygroupFixManager::FrameUpdate() {
-    if (!I::EngineClient || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
+    if (!I::EngineClient || !I::ClientEntityList || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
 
-    C_TerrorPlayer* pLocal = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer())->As<C_TerrorPlayer*>();
-    if (!pLocal || pLocal->deadflag()) return;
+    auto* localEntity = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer());
+    C_TerrorPlayer* pLocal = localEntity ? localEntity->As<C_TerrorPlayer*>() : nullptr;
+    if (!pLocal || pLocal->deadflag()) {
+        Reset();
+        return;
+    }
 
     // Weapon change detection: clear shadow atlas tile assignment cache when weapon switches
-    C_TerrorWeapon* weapon = pLocal->GetActiveWeapon()->As<C_TerrorWeapon*>();
+    auto* activeWeapon = pLocal->GetActiveWeapon();
+    C_TerrorWeapon* weapon = activeWeapon ? activeWeapon->As<C_TerrorWeapon*>() : nullptr;
     int weaponEntIdx = weapon ? weapon->entindex() : -1;
     if (weaponEntIdx != m_cachedWeaponEntIdx) {
         if (!m_bodygroupCache.empty()) {
@@ -83,6 +88,11 @@ void BodygroupFixManager::FrameUpdate() {
     if (!viewModel) return;
 
     ApplyBodygroups(viewModel->GetBaseAnimating());
+}
+
+void BodygroupFixManager::Reset() {
+    m_bodygroupCache.clear();
+    m_cachedWeaponEntIdx = -1;
 }
 
 } // namespace F

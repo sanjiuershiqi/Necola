@@ -4,7 +4,7 @@
 
 enum class m_state
 {
-	none = 1,
+	none = 0,
 	down,
 	up,
 	pressed
@@ -13,7 +13,7 @@ enum class m_state
 
 class CGlobal_InputManager {
 public:
-	void Init();
+	bool Init();
 	void undo();
 
 	m_state GetKeyState(uint32_t vk);
@@ -31,10 +31,12 @@ public:
 	bool ProcessMouseMessage(UINT, WPARAM, LPARAM);
 	bool ProcessKeybdMessage(UINT, WPARAM, LPARAM);
 private:
-	HWND                                     m_hwnd;
-	WNDPROC                                  m_old_wnd_proc;
-	m_state                                  m_key_map[256];
-	std::function<void(void)>                m_hotkeys[256];
+	static constexpr std::uint32_t kKeyCapacity = 256;
+	HWND                                     m_hwnd = nullptr;
+	WNDPROC                                  m_old_wnd_proc = nullptr;
+	bool                                     m_windowHooked = false;
+	m_state                                  m_key_map[kKeyCapacity]{};
+	std::function<void(void)>                m_hotkeys[kKeyCapacity]{};
 };
 
 

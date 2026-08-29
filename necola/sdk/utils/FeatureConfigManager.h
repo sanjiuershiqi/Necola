@@ -6,9 +6,15 @@
 #include "../../libs/json.hpp"
 
 namespace NecolaConfig {
-	constexpr const char* CONFIG_PATH = "necola\\FeatureConfig.json";
-	constexpr const char* CONFIG_DIR  = "necola";
-	constexpr const char* CONFIG_TEMP_PATH = "necola\\FeatureConfig.json.tmp";
+	inline std::filesystem::path GameRoot() {
+		char exePath[MAX_PATH] = {};
+		GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+		std::filesystem::path path(exePath);
+		return path.has_parent_path() ? path.parent_path() : std::filesystem::current_path();
+	}
+
+	inline std::filesystem::path ConfigPath() { return GameRoot() / "necola" / "FeatureConfig.json"; }
+	inline std::filesystem::path ConfigTempPath() { return GameRoot() / "necola" / "FeatureConfig.json.tmp"; }
 
 	inline bool& LastLoadFailed() {
 		static bool failed = false;
@@ -24,7 +30,7 @@ namespace NecolaConfig {
 
 	inline nlohmann::json LoadConfig() {
 		try {
-			std::ifstream file(CONFIG_PATH);
+			std::ifstream file(ConfigPath());
 			if (!file.is_open()) {
 				LastLoadFailed() = false;
 				return nlohmann::json{};
@@ -39,25 +45,30 @@ namespace NecolaConfig {
 		}
 	}
 
-	inline void SaveConfig(const nlohmann::json& doc) {
-		if (LastLoadFailed()) return;
+	inline bool SaveConfig(const nlohmann::json& doc) {
+		if (LastLoadFailed()) return false;
 		try {
-			std::filesystem::create_directories(CONFIG_DIR);
-			std::ofstream outFile(CONFIG_TEMP_PATH, std::ios::trunc);
+			const auto path = ConfigPath();
+			const auto tempPath = ConfigTempPath();
+			std::filesystem::create_directories(path.parent_path());
+			std::ofstream outFile(tempPath, std::ios::trunc);
 			if (outFile.is_open()) {
 				outFile << std::setw(4) << doc;
 				outFile.flush();
 				if (!outFile.good()) {
 					outFile.close();
-					std::filesystem::remove(CONFIG_TEMP_PATH);
-					return;
+					std::filesystem::remove(tempPath);
+					return false;
 				}
 				outFile.close();
-				if (!MoveFileExA(CONFIG_TEMP_PATH, CONFIG_PATH,
+				if (!MoveFileExA(tempPath.string().c_str(), path.string().c_str(),
 					MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-					std::filesystem::remove(CONFIG_TEMP_PATH);
+					std::filesystem::remove(tempPath);
+					return false;
 				}
+				return true;
 			}
-		} catch (...) {}
+		} catch (...) { return false; }
+		return false;
 	}
 }

@@ -1193,6 +1193,7 @@ namespace F {
 	}
 
 	bool SequenceModify::RecvPropDataHook() {
+		if (g_layerSequenceProp || g_animationParityProp || g_newSequenceParityProp) return true;
 		if (G::Vars.sequenceLog) spdlog::info("[SeqMod] RecvPropDataHook Start");
 		if (!I::BaseClient) return false;
 		ClientClass* pClass = I::BaseClient->GetAllClasses();
@@ -1208,6 +1209,7 @@ namespace F {
 				for (int i = 0; i < pTable->m_nProps; i++)
 				{
 					RecvProp* pProp = &pTable->m_pProps[i];
+					if (!pProp->m_pVarName) continue;
 					if (strcmp(pProp->m_pVarName, "m_nLayerSequence") == 0) {
 						layerSequenceProp = pProp;
 					}
@@ -1233,9 +1235,9 @@ namespace F {
 				g_origLayerSequenceProxy = layerProxy;
 				g_origAnimationParityProxy = animationProxy;
 				g_origNewSequenceParityProxy = newSequenceProxy;
-				g_layerSequenceProp->SetProxyFn((RecvVarProxyFn)HookedLayerSequence);
-				g_animationParityProp->SetProxyFn((RecvVarProxyFn)HookedAnimationParity);
-				g_newSequenceParityProp->SetProxyFn((RecvVarProxyFn)HookedNewSequenceParity);
+				g_layerSequenceProp->SetProxyFn(HookedLayerSequence);
+				g_animationParityProp->SetProxyFn(HookedAnimationParity);
+				g_newSequenceParityProp->SetProxyFn(HookedNewSequenceParity);
 
 				if (G::Vars.sequenceLog) spdlog::info("[SeqMod] RecvPropDataHook End Success");
 				return true;

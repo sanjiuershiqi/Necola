@@ -107,8 +107,7 @@ L4N 官方 `l4n_plugin.h` 示例写明：
 necola\FeatureConfig.json
 ```
 
-若游戏工作目录是根目录，通常解析为 `<L4D2>/necola/FeatureConfig.json`，不是
-`<L4D2>/neko/FeatureConfig.json`。
+配置现在按宿主进程 exe 所在目录解析为 `<L4D2>/necola/FeatureConfig.json`，不依赖当前工作目录。
 
 文件保存 ADS、SequenceModify、菜单外观和 KillFeedback 配置。模式值会限制在合法范围，错误字段
 类型回退到默认值。
@@ -261,7 +260,7 @@ PageUp/PageDown 翻页，`0`、Enter、Esc、Backspace 返回。标题显示两�
 
 特别检查：
 
-- 等待列表中的 8 个 DLL（包括 `vstdlib.dll`）是否已加载。
+- 等待列表中的 9 个 DLL（包括 `vstdlib.dll`）是否已加载。
 - 是否有其他补丁改变模块名称或加载时序。
 
 ### 5.3 接口或 pattern 失败

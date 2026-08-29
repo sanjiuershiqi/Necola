@@ -85,7 +85,7 @@ ABI 没有规定：
 
 1. `OnGameLaunch` 或任意一次 `OnModuleLoaded` 中先到者通过共享原子标志尝试创建线程。
 2. `OnModuleLoaded` 把模块名和句柄缓存到 `L4N::Env`。
-3. 初始化线程每 1 秒用 `GetModuleHandleA` 检查 8 个模块，最多循环 120 次。
+3. 初始化线程每 1 秒用 `GetModuleHandleA` 检查 9 个模块，最多循环 120 次。
 4. 120 次后仍缺模块会记录超时并中止，不会进入接口获取和 Hook 安装。
 5. 接口获取和 pattern scan 仍直接使用 `GetModuleHandleA`，尚未消费 `L4N::Env` 的句柄缓存。
 

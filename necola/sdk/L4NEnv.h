@@ -21,6 +21,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <atomic>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -48,7 +49,7 @@ public:
     // coordination/conflict report to the diagnostic log.
     void Init();
 
-    bool Detected() const { return m_detected; }
+    bool Detected() const { return m_detected.load(std::memory_order_acquire); }
 
     // ---- coordinated L4N state (per-frame safe) ---------------------------
     // l4n_game_hud_visible — when L4N hides the whole HUD, our crosshair
@@ -77,13 +78,12 @@ private:
     static std::string NormalizeKey(const char* name);
 
     mutable std::mutex m_moduleMtx;  // guards m_modules only
+    mutable std::mutex m_cvarMtx;    // guards lazy cvar publication
     std::unordered_map<std::string, HMODULE> m_modules;
 
-    bool m_detected = false;
+    std::atomic_bool m_detected = false;
 
-    // Lazily-resolved cvar pointers. Written from at most two threads
-    // (init thread + paint thread) with identical values — benign race,
-    // aligned pointer stores on x86.
+    // Lazily-resolved cvar pointers. Access is serialized by m_cvarMtx.
     mutable ConVar* m_cvHudVisible = nullptr;
     mutable ConVar* m_cvPatchHudScope = nullptr;
     mutable ConVar* m_cvSway = nullptr;

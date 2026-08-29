@@ -74,17 +74,17 @@ materialsystem.dll
 4. 集中验证当前功能必需的接口和 pattern；缺失时终止。
 5. `L4N::Env.Init()` 探测并缓存相关 `l4n_*` cvar。
 6. 只解引用当前运行路径必需的 GlobalVars 指针，并验证结果。
-7. 替换 Valve 窗口过程，收集键鼠消息。
+7. 尝试替换 Valve 窗口过程，收集兼容热键消息；失败时继续使用引擎输入路径。
 8. 初始化 MinHook 并安装 Raw hook，检查每一步返回值。
-9. 从 `necola\FeatureConfig.json` 读取 ADS、序列和菜单外观配置。
+9. 从游戏根目录 `necola\FeatureConfig.json` 读取 ADS、序列、菜单和反馈配置。
 10. 找齐并替换 3 个 `CBaseViewModel` RecvProp proxy。
 11. 按配置初始化 ADS，初始化菜单字体和菜单开关。
-12. 注册 7 个 `necola_*` 控制台命令。
+12. 注册 10 个 `necola_*` 控制台命令。
 
 不存在 `FeatureConfig.json/KeyBinds` 自动读取或自动 `bind`。
 
-初始化返回失败或触发 SEH 后会恢复已安装的 RecvProp proxy、MinHook 和窗口过程。控制台命令仍
-没有注销机制，因此清理尚不是完全事务性的。
+初始化返回失败或触发 SEH 后会恢复已安装的 RecvProp proxy、MinHook 和窗口过程；命令管理器保留
+已注册对象并在显式清理路径注销。插件仍按进程生命周期设计，不支持运行时热卸载。
 
 ## 三、Source 接口
 
@@ -231,7 +231,7 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 |---|---|
 | `kpatch.ini` | 相对工作目录读取；先读取 `[AdsSupport] enableAdsSupport`，仓库模板没有该段 |
 | `[System] debug` | 会被解析，但不控制当前调试开关 |
-| `necola\FeatureConfig.json` | 相对工作目录读取/写入，保存 ADS、SequenceModify、Menu 和 KillFeedback 配置 |
+| `necola\FeatureConfig.json` | 游戏根目录读取/写入，保存 ADS、SequenceModify、Menu 和反馈配置 |
 | `NECOLA_ADS_DEBUG` | 只要环境变量存在，就启用控制台和 spdlog 详细输出 |
 | `L4N-Necola-ADS-diag.log` | 位于宿主 exe 目录；关键里程碑始终写入 |
 

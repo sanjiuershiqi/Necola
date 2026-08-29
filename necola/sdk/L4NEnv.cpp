@@ -1,37 +1,15 @@
 #include "L4NEnv.h"
 
 #include "l4d2/interfaces/IConVar.h"
+#include "../diag.h"
 
 #include <bit>
 #include <cctype>
 #include <cstdio>
 
-// ---- local diagnostic logger (same Win32 pattern as dllmain/Entry) --------
 namespace {
-
-std::string DiagLogPath() {
-    char exePath[MAX_PATH] = {0};
-    GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-    std::string p(exePath);
-    size_t slash = p.find_last_of("\\/");
-    std::string dir = (slash != std::string::npos) ? p.substr(0, slash) : ".";
-    return dir + "\\L4N-Necola-ADS-diag.log";
-}
-
 void Log(const char* msg) {
-    static std::string path = DiagLogPath();
-    HANDLE h = CreateFileA(path.c_str(), FILE_APPEND_DATA,
-        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return;
-    SYSTEMTIME st; GetLocalTime(&st);
-    char line[1024];
-    int n = _snprintf_s(line, sizeof(line), _TRUNCATE,
-        "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %s\r\n",
-        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
-        st.wMilliseconds, msg);
-    if (n > 0) { DWORD w = 0; WriteFile(h, line, (DWORD)n, &w, nullptr); }
-    CloseHandle(h);
+    NecolaDiagLog(msg);
 }
 
 } // namespace
@@ -75,6 +53,7 @@ size_t CEnv::ModuleCount() const {
 }
 
 ConVar* CEnv::Cvar(const char* name, ConVar** cache) const {
+    std::lock_guard lock(m_cvarMtx);
     if (*cache) return *cache;
     if (!I::Cvars) return nullptr;
     *cache = I::Cvars->FindVar(name);
@@ -117,15 +96,15 @@ void CEnv::Init() {
     const bool byCvar  = Cvar("l4n_game_hud_visible", &m_cvHudVisible) != nullptr
                       || Cvar("l4n_patch_hud_scope", &m_cvPatchHudScope) != nullptr;
     const bool byShader = ::GetModuleHandleA("game_shader_generic_neko.dll") != nullptr;
-    m_detected = byCvar || byShader;
+    m_detected.store(byCvar || byShader, std::memory_order_release);
 
     _snprintf_s(buf, sizeof(buf), _TRUNCATE,
         "L4NEnv: runtime %s (cvar probe=%d, neko shader=%d, modules tracked=%zu)",
-        m_detected ? "DETECTED" : "NOT detected",
+        m_detected.load(std::memory_order_acquire) ? "DETECTED" : "NOT detected",
         byCvar ? 1 : 0, byShader ? 1 : 0, ModuleCount());
     Log(buf);
 
-    if (!m_detected) return;
+    if (!m_detected.load(std::memory_order_acquire)) return;
 
     // Resolve the rest of the coordinated cvars and report their state
     // once, so "weird scope/crosshair/sway behaviour" reports come with

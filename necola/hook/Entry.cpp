@@ -16,32 +16,11 @@
 #include "../sdk/L4NEnv.h"
 #include "../sdk/l4d2/interfaces/IConVar.h"
 #include "../sdk/utils/FeatureConfigManager.h"
+#include "../diag.h"
 
-// ---- Local diagnostic logger (Win32, no CRT deps) ------------------------
 namespace {
-std::string EntryLogPath() {
-    char exePath[MAX_PATH] = {0};
-    GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-    std::string p(exePath);
-    size_t slash = p.find_last_of("\\/");
-    std::string dir = (slash != std::string::npos) ? p.substr(0, slash) : ".";
-    return dir + "\\L4N-Necola-ADS-diag.log";
-}
-
 void ELog(const char* msg) {
-    static std::string path = EntryLogPath();
-    HANDLE h = CreateFileA(path.c_str(), FILE_APPEND_DATA,
-        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return;
-    SYSTEMTIME st; GetLocalTime(&st);
-    char line[2048];
-    int n = _snprintf_s(line, sizeof(line), _TRUNCATE,
-        "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %s\r\n",
-        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
-        st.wMilliseconds, msg);
-    if (n > 0) { DWORD w = 0; WriteFile(h, line, (DWORD)n, &w, nullptr); }
-    CloseHandle(h);
+    NecolaDiagLog(msg);
 }
 } // namespace
 
@@ -219,7 +198,9 @@ static bool RunLoadBody()
 		srand(time(NULL));
 	}
 	ELog("Step 4: G::InputManagerI.Init()");
-	G::InputManagerI.Init();
+	if (!G::InputManagerI.Init()) {
+		ELog("WARN: optional window input hook unavailable; engine key input remains active");
+	}
 	ELog("Step 4 done");
 
 	ELog("Step 5: G::Hooks.Init()");
@@ -350,6 +331,8 @@ void CGlobal_ModuleEntry::undo()
 	F::KillFeedbackMgr.Shutdown();
 	ELog("undo: shutdown hit feedback");
 	F::HitFeedbackMgr.Shutdown();
+	ELog("undo: unregister console commands");
+	F::CmdMgr.Shutdown();
 	ELog("undo: restore RecvProp proxies");
 	F::SModify.RecvPropDataUnhook();
 	ELog("undo: G::Hooks.undo()");

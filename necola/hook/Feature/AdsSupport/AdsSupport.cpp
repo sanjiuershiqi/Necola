@@ -12,6 +12,14 @@ namespace F {
 static constexpr float ADS_TRANSITION_DURATION = 0.4f;
 static constexpr float MIXED_TRANSITION_DURATION = 0.4f;
 
+static C_TerrorPlayer* LocalPlayer() {
+    if (!I::EngineClient || !I::ClientEntityList) return nullptr;
+    const int index = I::EngineClient->GetLocalPlayer();
+    if (index <= 0) return nullptr;
+    auto* entity = I::ClientEntityList->GetClientEntity(index);
+    return entity ? entity->As<C_TerrorPlayer*>() : nullptr;
+}
+
 // Render pass enum value → debug label map for all Necola custom pipeline stages (>= 2001).
 // Used to resolve draw-call batches by pass name in raw pipeline data, bypassing the engine's
 // CPipelinePermutationCache which doesn't include custom render stages.
@@ -303,15 +311,16 @@ void AdsSupport::OnZoomPressed() {
     if (G::Vars.adsLog) spdlog::info("[ADS] OnZoomPressed");
 
     if (!G::Vars.enableAdsSupport) return;
-    if (!I::EngineClient || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
+    if (!I::EngineClient || !I::ClientEntityList || !I::GlobalVars || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
 
-    C_TerrorPlayer* pLocal = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer())->As<C_TerrorPlayer*>();
+    C_TerrorPlayer* pLocal = LocalPlayer();
     if (!pLocal || pLocal->deadflag()) {
         if (m_adsState != ADS_NONE) SilentExitADS();
         return;
     }
 
-    C_TerrorWeapon* weapon = pLocal->GetActiveWeapon()->As<C_TerrorWeapon*>();
+    auto* activeWeapon = pLocal->GetActiveWeapon();
+    C_TerrorWeapon* weapon = activeWeapon ? activeWeapon->As<C_TerrorWeapon*>() : nullptr;
     if (!weapon) return;
 
     // validate GPU upload fence and check primary draw budget
@@ -339,12 +348,13 @@ void AdsSupport::OnNecolaAdsPressed() {
     if (G::Vars.adsLog) spdlog::info("[ADS] OnNecolaAdsPressed");
 
     if (!G::Vars.enableAdsSupport) return;
-    if (!I::EngineClient || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
+    if (!I::EngineClient || !I::ClientEntityList || !I::GlobalVars || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
 
-    C_TerrorPlayer* pLocal = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer())->As<C_TerrorPlayer*>();
+    C_TerrorPlayer* pLocal = LocalPlayer();
     if (!pLocal || pLocal->deadflag()) return;
 
-    C_TerrorWeapon* weapon = pLocal->GetActiveWeapon()->As<C_TerrorWeapon*>();
+    auto* activeWeapon = pLocal->GetActiveWeapon();
+    C_TerrorWeapon* weapon = activeWeapon ? activeWeapon->As<C_TerrorWeapon*>() : nullptr;
     if (!weapon) return;
 
     // validate GPU upload fence and check primary draw budget
@@ -363,12 +373,13 @@ void AdsSupport::OnMixedPressed() {
     if (G::Vars.adsLog) spdlog::info("[ADS] OnMixedPressed");
 
     if (!G::Vars.enableAdsSupport) return;
-    if (!I::EngineClient || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
+    if (!I::EngineClient || !I::ClientEntityList || !I::GlobalVars || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
 
-    C_TerrorPlayer* pLocal = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer())->As<C_TerrorPlayer*>();
+    C_TerrorPlayer* pLocal = LocalPlayer();
     if (!pLocal || pLocal->deadflag()) return;
 
-    C_TerrorWeapon* weapon = pLocal->GetActiveWeapon()->As<C_TerrorWeapon*>();
+    auto* activeWeapon = pLocal->GetActiveWeapon();
+    C_TerrorWeapon* weapon = activeWeapon ? activeWeapon->As<C_TerrorWeapon*>() : nullptr;
     if (!weapon) return;
 
     // validate GPU upload fence and check primary draw budget
@@ -381,13 +392,14 @@ void AdsSupport::OnForcebackPressed() {
     if (G::Vars.adsLog) spdlog::info("[ADS] OnForcebackPressed");
 
     if (!G::Vars.enableAdsSupport) return;
-    if (!I::EngineClient || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
+    if (!I::EngineClient || !I::ClientEntityList || !I::GlobalVars || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
     if (m_adsState == ADS_NONE) return;
 
-    C_TerrorPlayer* pLocal = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer())->As<C_TerrorPlayer*>();
+    C_TerrorPlayer* pLocal = LocalPlayer();
     if (!pLocal || pLocal->deadflag()) return;
 
-    C_TerrorWeapon* weapon = pLocal->GetActiveWeapon()->As<C_TerrorWeapon*>();
+    auto* activeWeapon = pLocal->GetActiveWeapon();
+    C_TerrorWeapon* weapon = activeWeapon ? activeWeapon->As<C_TerrorWeapon*>() : nullptr;
     if (!weapon) return;
 
     // validate GPU upload fence and check primary draw budget
@@ -554,10 +566,11 @@ void AdsSupport::OnAdsBackPressed() {
         return;
     }
 
-    C_TerrorPlayer* pLocal = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer())->As<C_TerrorPlayer*>();
+    C_TerrorPlayer* pLocal = LocalPlayer();
     if (!pLocal || pLocal->deadflag()) return;
 
-    C_TerrorWeapon* weapon = pLocal->GetActiveWeapon()->As<C_TerrorWeapon*>();
+    auto* activeWeapon = pLocal->GetActiveWeapon();
+    C_TerrorWeapon* weapon = activeWeapon ? activeWeapon->As<C_TerrorWeapon*>() : nullptr;
     if (!weapon) return;
 
     // validate GPU upload fence and check primary draw budget
@@ -971,13 +984,14 @@ void AdsSupport::PerformAdsBack(C_BaseViewModel* viewModel, C_TerrorWeapon* weap
 }
 
 void AdsSupport::PerformAdsToggle() {
+    if (!I::GlobalVars) return;
     // stall cascade tier switch while GPU pipeline barrier is in-flight (depth or hybrid pass)
     if (m_isAdsTransitioning || m_isMixedTransitioning) {
         if (G::Vars.adsLog) spdlog::info("[ADS] PerformAdsToggle: blocked by transition (ads={} mixed={})", m_isAdsTransitioning, m_isMixedTransitioning);
         return;
     }
 
-    C_TerrorPlayer* pLocal = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer())->As<C_TerrorPlayer*>();
+    C_TerrorPlayer* pLocal = LocalPlayer();
     if (!pLocal || pLocal->deadflag()) {
         if (m_adsState != ADS_NONE) SilentExitADS();
         return;
@@ -986,7 +1000,8 @@ void AdsSupport::PerformAdsToggle() {
     C_BaseViewModel* viewModel = pLocal->m_hViewModel()->As<C_BaseViewModel*>();
     if (!viewModel) return;
 
-    C_TerrorWeapon* weapon = pLocal->GetActiveWeapon()->As<C_TerrorWeapon*>();
+    auto* activeWeapon = pLocal->GetActiveWeapon();
+    C_TerrorWeapon* weapon = activeWeapon ? activeWeapon->As<C_TerrorWeapon*>() : nullptr;
     if (!weapon) return;
 
     // GPU网格槽重新验证及绘制批次缓存更新
@@ -1069,19 +1084,21 @@ void AdsSupport::PerformAdsToggle() {
 }
 
 void AdsSupport::PerformMixedToggle() {
+    if (!I::GlobalVars) return;
     // stall hybrid tier switch while GPU pipeline barrier is in-flight (depth or hybrid pass)
     if (m_isAdsTransitioning || m_isMixedTransitioning) {
         if (G::Vars.adsLog) spdlog::info("[ADS] PerformMixedToggle: blocked by transition (ads={} mixed={})", m_isAdsTransitioning, m_isMixedTransitioning);
         return;
     }
 
-    C_TerrorPlayer* pLocal = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer())->As<C_TerrorPlayer*>();
+    C_TerrorPlayer* pLocal = LocalPlayer();
     if (!pLocal || pLocal->deadflag()) return;
 
     C_BaseViewModel* viewModel = pLocal->m_hViewModel()->As<C_BaseViewModel*>();
     if (!viewModel) return;
 
-    C_TerrorWeapon* weapon = pLocal->GetActiveWeapon()->As<C_TerrorWeapon*>();
+    auto* activeWeapon = pLocal->GetActiveWeapon();
+    C_TerrorWeapon* weapon = activeWeapon ? activeWeapon->As<C_TerrorWeapon*>() : nullptr;
     if (!weapon) return;
 
     // GPU网格槽重新验证及绘制批次缓存更新
@@ -1325,6 +1342,10 @@ void AdsSupport::ForceExitADS() {
     m_adsState = ADS_NONE;
 }
 
+void AdsSupport::ResetLevelState() {
+    *this = AdsSupport{};
+}
+
 void AdsSupport::SilentExitADS() {
     if (G::Vars.adsLog) spdlog::info("[ADS] SilentExitADS: from level={}", (int)m_adsState);
 
@@ -1379,6 +1400,7 @@ void AdsSupport::SilentExitMixed(bool savePrev) {
 }
 
 void AdsSupport::FrameUpdate() {
+    if (!I::GlobalVars || !I::ClientEntityList) return;
     // release stale pipeline fence tokens
     if (m_isAdsTransitioning && I::GlobalVars->curtime >= m_adsTransitionEndTime) {
         m_isAdsTransitioning = false;
@@ -1390,11 +1412,12 @@ void AdsSupport::FrameUpdate() {
     if (m_adsState == ADS_NONE && !m_isMixed) return;
     if (!I::EngineClient || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
 
-    C_TerrorPlayer* pLocal = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer())->As<C_TerrorPlayer*>();
+    C_TerrorPlayer* pLocal = LocalPlayer();
     if (!pLocal || pLocal->deadflag()) return;
 
     // GPU网格槽变更检测
-    C_TerrorWeapon* weapon = pLocal->GetActiveWeapon()->As<C_TerrorWeapon*>();
+    auto* activeWeapon = pLocal->GetActiveWeapon();
+    C_TerrorWeapon* weapon = activeWeapon ? activeWeapon->As<C_TerrorWeapon*>() : nullptr;
     if (!weapon || weapon->entindex() != m_cachedWeaponEntIdx) {
         if (G::Vars.adsLog) spdlog::info("[ADS] FrameUpdate: weapon mismatch (active={} cached={}), SilentExitADS",
             weapon ? weapon->entindex() : -1, m_cachedWeaponEntIdx);

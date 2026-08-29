@@ -5,35 +5,44 @@ using namespace G;
 unsigned long WINAPI hook(HWND h, UINT m, WPARAM w, LPARAM l)
 {
 	G::InputManagerI.ProcessMessage(m, w, l);
-	return CallWindowProcA(G::InputManagerI.GetWndProcOriginal(), h, m, w, l);
+	const WNDPROC original = G::InputManagerI.GetWndProcOriginal();
+	return original ? CallWindowProcA(original, h, m, w, l) : DefWindowProcA(h, m, w, l);
 }
 
-void CGlobal_InputManager::Init()
+bool CGlobal_InputManager::Init()
 {
 	m_hwnd = FindWindowA("Valve001", 0);
-	m_old_wnd_proc = reinterpret_cast<WNDPROC>(SetWindowLongA(m_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(hook)));
+	if (!m_hwnd) return false;
+	SetLastError(0);
+	m_old_wnd_proc = reinterpret_cast<WNDPROC>(SetWindowLongPtrA(m_hwnd, GWLP_WNDPROC,
+		reinterpret_cast<LONG_PTR>(hook)));
+	m_windowHooked = m_old_wnd_proc != nullptr || GetLastError() == 0;
+	return m_windowHooked;
 }
 
 void CGlobal_InputManager::undo()
 {
-	if (m_old_wnd_proc)
-		SetWindowLongA(m_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(m_old_wnd_proc));
+	if (m_windowHooked && m_hwnd && m_old_wnd_proc &&
+		reinterpret_cast<WNDPROC>(GetWindowLongPtrA(m_hwnd, GWLP_WNDPROC)) == hook)
+		SetWindowLongPtrA(m_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(m_old_wnd_proc));
 
-	m_old_wnd_proc = 0;
+	m_old_wnd_proc = nullptr;
+	m_hwnd = nullptr;
+	m_windowHooked = false;
 }
 m_state CGlobal_InputManager::GetKeyState(std::uint32_t vk)
 {
-	return m_key_map[vk];
+	return vk < kKeyCapacity ? m_key_map[vk] : m_state::none;
 }
 
 bool CGlobal_InputManager::IsKeyDown(std::uint32_t vk)
 {
-	return m_key_map[vk] == m_state::down;
+	return vk < kKeyCapacity && m_key_map[vk] == m_state::down;
 }
 
 bool CGlobal_InputManager::WasKeyPressed(std::uint32_t vk)
 {
-	if (m_key_map[vk] == m_state::pressed)
+	if (vk < kKeyCapacity && m_key_map[vk] == m_state::pressed)
 	{
 		m_key_map[vk] = m_state::up;
 		return true;
@@ -43,11 +52,13 @@ bool CGlobal_InputManager::WasKeyPressed(std::uint32_t vk)
 
 void CGlobal_InputManager::AddHotkey(std::uint32_t vk, std::function<void(void)> f)
 {
+	if (vk >= kKeyCapacity) return;
 	m_hotkeys[vk] = f;
 }
 
 void CGlobal_InputManager::RemHotkey(std::uint32_t vk)
 {
+	if (vk >= kKeyCapacity) return;
 	m_hotkeys[vk] = nullptr;
 }
 
@@ -133,6 +144,7 @@ bool CGlobal_InputManager::ProcessMouseMessage(UINT uMsg, WPARAM wParam, LPARAM 
 
 bool CGlobal_InputManager::ProcessKeybdMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	if (wParam >= kKeyCapacity) return false;
 	auto key = wParam;
 	auto state = m_state::none;
 

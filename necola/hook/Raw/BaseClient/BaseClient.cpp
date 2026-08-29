@@ -51,6 +51,9 @@ void __fastcall BaseClient::LevelShutdown::Detour(void* ecx, void* edx)
 	F::CampaignTimerMgr.OnLevelShutdown();
 	F::KillFeedbackMgr.Reset();
 	F::HitFeedbackMgr.Reset();
+	F::BodygroupFix.Reset();
+	F::AdsMgr.ResetLevelState();
+	F::SModify.init();
 	Table.Original<FN>(Index)(ecx, edx);
 	NecolaDiagLog("MapStage: LevelShutdown completed");
 }

@@ -8,6 +8,7 @@ public:
 	template<typename T>
 	inline T Get(const char* const szModule, const char* const szObject)
 	{
+		if (!szModule || !szObject || !*szModule || !*szObject) return NULL;
 		const HMODULE hMod = GetModuleHandleA(szModule);
 
 		if (!hMod)
