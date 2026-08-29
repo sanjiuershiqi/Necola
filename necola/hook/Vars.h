@@ -46,6 +46,11 @@ public:
     bool ignoreShotgunSequence = false;
     bool sequenceLog = false;
 
+    // External weapon VPK inspection/fidget animation support.
+    bool openInspect = true;
+    int inspectKey = 0x52;
+    bool inspectIgnoreAmmo = false;
+
     // In-game menu appearance.
     int menuAnchor = 0;       // 0=left, 1=center, 2=right
     int menuOpacity = 220;    // background alpha, clamped to 160..245

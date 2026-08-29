@@ -13,6 +13,7 @@
 #include "./Feature/CampaignTimer/CampaignTimer.h"
 #include "./Feature/KillFeedback/KillFeedback.h"
 #include "./Feature/HitFeedback/HitFeedback.h"
+#include "./Feature/InspectInitiative/InspectInitiative.h"
 #include "../sdk/L4NEnv.h"
 #include "../sdk/l4d2/interfaces/IConVar.h"
 #include "../sdk/utils/FeatureConfigManager.h"
@@ -227,6 +228,7 @@ static bool RunLoadBody()
 		F::MenuMgr.LoadConfig(doc);
 		F::KillFeedbackMgr.LoadConfig(doc);
 		F::HitFeedbackMgr.LoadConfig(doc);
+		F::InspectMgr.LoadConfig(doc);
 	}
 	ELog("Step 6 done");
 
@@ -251,6 +253,7 @@ static bool RunLoadBody()
 		F::MenuMgr.InitConfigSwitches();
 	}
 	ELog("Step 9 done");
+	F::InspectMgr.Bind();
 
 	// Register console commands
 	ELog("Step 10: register commands");
@@ -331,6 +334,7 @@ void CGlobal_ModuleEntry::undo()
 	F::KillFeedbackMgr.Shutdown();
 	ELog("undo: shutdown hit feedback");
 	F::HitFeedbackMgr.Shutdown();
+	F::InspectMgr.Shutdown();
 	ELog("undo: unregister console commands");
 	F::CmdMgr.Shutdown();
 	ELog("undo: restore RecvProp proxies");

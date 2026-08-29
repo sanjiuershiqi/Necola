@@ -134,6 +134,10 @@ necola\FeatureConfig.json
 }
 ```
 
+检视配置位于 `InspectInitiative`：`Enabled` 控制主动检视，`Key` 是虚拟键码，`IgnoreAmmo` 控制
+是否忽略弹药未满时的检视限制。检视通过原生 `ACT_VM_FIDGET` 优先触发，失败后使用武器对应的
+item-pickup/helping-hand layer，因此外部武器 VPK 的动画、声音和粒子事件仍由引擎执行。
+
 `KillFeedback.Enabled` 只控制击杀提示；`KillFeedback.HitMode` 独立控制主题命中。`HitFeedback.Enabled`
 只控制 VGUI 伤害数字和准星标记，三者不能互相作为总开关。
 

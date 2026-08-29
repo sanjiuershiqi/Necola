@@ -120,13 +120,11 @@ void KillFeedbackListener::FireGameEvent(IGameEvent* event) {
 	F::KillFeedbackMgr.OnGameEvent(event);
 }
 
-bool KillFeedback::UnlockCommands() {
+bool KillFeedback::UnlockCommands(bool needOverlay) {
 	if (m_commandsUnlocked) return true;
+	if (!needOverlay) return true;
 	if (!I::Cvars) return false;
-	// skeeto Cmd_PlaySound: one-shot unlock of r_screenoverlay / play /
-	// playvol (clear FCVAR_CHEAT, add FCVAR_CLIENTCMD_CAN_EXECUTE) so that
-	// IVEngineClient::ClientCmd can drive overlays and sounds on any server.
-	const char* const commands[] = {"r_screenoverlay", "play", "playvol"};
+	const char* const commands[] = {"r_screenoverlay"};
 	for (const char* name : commands) {
 		ConCommandBase* command = I::Cvars->FindCommandBase(name);
 		if (!command) {
@@ -315,7 +313,7 @@ bool KillFeedback::HitCheck(const KillTheme& theme, const char* eventName, bool 
 }
 
 void KillFeedback::PlaySoundVol(const KillStyle& style) {
-	if (!G::Vars.killFeedbackSound || !I::EngineClient) return;
+	if (!G::Vars.killFeedbackSound) return;
 	if (G::Vars.killFeedbackSoundVolume <= 0) return;
 	const std::size_t count = style.sounds.size() + (style.sound.empty() ? 0u : 1u);
 	if (count == 0) return;
@@ -327,6 +325,18 @@ void KillFeedback::PlaySoundVol(const KillStyle& style) {
 	if (std::strncmp(relative, "sound/", 6) == 0) relative += 6;
 	if (!*relative) return;
 	const float volume = std::clamp(G::Vars.killFeedbackSoundVolume, 0, 100) / 100.0f;
+	// Keep the default path identical to the original inspect/feedback build:
+	// VGUI plays a local UI sample without touching the game's sound-script
+	// cache. EngineSound is used only when an explicit volume is requested.
+	if (volume >= 0.999f && I::MatSystemSurface) {
+		I::MatSystemSurface->PlaySound(relative);
+		return;
+	}
+	if (I::EngineSound) {
+		I::EngineSound->EmitAmbientSound(relative, volume, SNDLVL_NORM, 0, 0.0f);
+		return;
+	}
+	if (!I::EngineClient) return;
 	char command[192] = {};
 	_snprintf_s(command, sizeof(command), _TRUNCATE, "playvol %s %.2f", relative, volume);
 	I::EngineClient->ClientCmd(command);
@@ -472,7 +482,7 @@ bool KillFeedback::ResolveCombinedFeedback(bool kill, bool headshot, bool melee,
 	if (!I::EngineClient || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return false;
 
 	LoadThemes();
-	if (!UnlockCommands()) return false;
+	if (!UnlockCommands(G::Vars.killFeedbackIcon)) return false;
 	KillStyle siStyle;
 	KillStyle ciStyle;
 	bool siValid = false;
@@ -1090,7 +1100,7 @@ void KillFeedback::Shutdown() {
 
 void KillFeedback::Preview(int kind) {
 	LoadThemes();
-	if (!UnlockCommands()) return;
+	if (!UnlockCommands(G::Vars.killFeedbackIcon)) return;
 	if (I::EngineClient && I::ClientEntityList) {
 		const int localIndex = I::EngineClient->GetLocalPlayer();
 		auto* entity = I::ClientEntityList->GetClientEntity(localIndex);

@@ -55,6 +55,7 @@ void __fastcall BaseClient::LevelShutdown::Detour(void* ecx, void* edx)
 	F::BodygroupFix.Reset();
 	F::AdsMgr.ResetLevelState();
 	F::SModify.init();
+	F::InspectMgr.Reset();
 	Table.Original<FN>(Index)(ecx, edx);
 	NecolaDiagLog("MapStage: LevelShutdown completed");
 }
@@ -69,6 +70,7 @@ void __fastcall BaseClient::FrameStageNotify::Detour(void* ecx, void* edx, Clien
 	switch(curStage)
 	{
 		case FRAME_NET_UPDATE_END:
+			F::InspectMgr.FrameUpdate();
 			F::KillFeedbackMgr.RefreshSpecialVictims();
 			break;
 		case FRAME_RENDER_START:

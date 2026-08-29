@@ -359,6 +359,18 @@ public:
 				NecolaConfig::SaveConfig(doc);
 				RefreshRootLabels();
 			});
+			adsMenu->addSwitch("主动检视", G::Vars.openInspect, [this](bool state) {
+				G::Vars.openInspect = state;
+				nlohmann::json doc = NecolaConfig::LoadConfig();
+				F::InspectMgr.SaveConfig(doc);
+				NecolaConfig::SaveConfig(doc);
+			});
+			adsMenu->addSwitch("检视忽略弹药限制", G::Vars.inspectIgnoreAmmo, [this](bool state) {
+				G::Vars.inspectIgnoreAmmo = state;
+				nlohmann::json doc = NecolaConfig::LoadConfig();
+				F::InspectMgr.SaveConfig(doc);
+				NecolaConfig::SaveConfig(doc);
+			});
 
 			// Per-weapon ADS crosshair hide submenu
 			{

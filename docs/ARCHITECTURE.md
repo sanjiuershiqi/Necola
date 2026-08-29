@@ -219,6 +219,11 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 `r_screenoverlay/play/playvol` 一次性清除 `FCVAR_CHEAT` 并添加
 `FCVAR_CLIENTCMD_CAN_EXECUTE`。
 
+主动检视是独立的 `InspectInitiative` 模块，不通过击杀反馈音频链路播放声音。它保留原生
+`ACT_VM_FIDGET` 路径，并按武器类型回退到 item-pickup/helping-hand layer；这些 layer 由武器模型
+自己的 animation event 驱动外部音频库和粒子。弹药缓存只用于判断是否允许检视，不改写声音脚本或
+`IEngineSound` 全局行为。
+
 主题命中与击杀提示拥有独立开关：`KillFeedback.Enabled` 只控制击杀，`HitMode=0/1/2` 独立控制
 关闭/仅 SI/全部主题命中。SI 命中使用客户端 `player_hurt`；不安装健康 RecvProxy，以避免地图实体创建
 阶段与其他插件的 RecvProp 链冲突。Common/Witch 命中由本地 `bullet_impact` 延迟 45ms 后通过

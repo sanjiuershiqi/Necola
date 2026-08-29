@@ -120,7 +120,7 @@ private:
 	void SpawnParticles(const KillStyle& style);
 	void CaptureFeedbackPosition(IGameEvent* event, int entityIndex);
 	void PumpCommonHitTrace();
-	bool UnlockCommands();
+	bool UnlockCommands(bool needOverlay);
 
 	static const char* ClassificationName(const KillClassification& classification);
 	static const char* SpecialVictimName(SpecialVictim victim);
