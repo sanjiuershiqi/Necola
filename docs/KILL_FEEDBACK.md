@@ -60,8 +60,12 @@ SI 连杀计数；特感 streak 是滚动计数并按主题 `wrap` 循环，切�
 
 - 只响应本地玩家造成的击杀。
 - `infected_death` 处理普通感染者。
-- `player_death` 是 Smoker、Boomer、Hunter、Spitter、Jockey、Charger、Tank 和 Witch 的权威来源；
-  各特感专用死亡事件仅作延迟回退，`witch_killed` 只清理 Witch 状态。
+- `player_death` 是 Smoker、Boomer、Hunter、Spitter、Jockey、Charger、Tank 的权威来源；各特感专用
+  死亡事件仅作延迟回退。
+- **Witch 走 `witch_killed`**：Witch 不是玩家实体，不会有 `player_death`，所以这个事件本身就是完整
+  击杀路径（与 skeeto 的 `witch_killed` 分支一致）：校验 `userid` 是本地玩家 → 过
+  `killFeedbackSpecial` + `killFeedbackWitch` 两级开关与击杀方式过滤 → 走 **CI 通道**（不增加 SI
+  连杀计数），并与同帧的 `infected_death` 去重。
 - 爆头、近战和爆炸是正交分类；爆头与近战可同时成立，再由主题 priority 决定最终页面。电锯和全部
   标准近战武器名都按 melee 识别，爆炸/燃烧没有专属页面时仍会触发 base kill/streak。
 - 每个本地 SI/Witch `player_death` 都增加 streak，包括近战、爆炸和燃烧；普通感染者不参与。

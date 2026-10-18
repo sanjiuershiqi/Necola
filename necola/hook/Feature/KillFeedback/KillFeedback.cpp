@@ -1210,10 +1210,20 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 			event->GetInt("attacker", 0), local, G::Vars.killFeedbackSpecial,
 			SpecialVictimName(victim),
 			event->GetString("weapon", ""), event->GetBool("headshot", false), event->GetInt("type", 0));
-		if (!local || victim == SpecialVictim::Unknown) {
+		if (!local) {
 			m_playerDamage.erase(victimUserId);
 			m_pendingSpecialKills.erase(victimUserId);
-			if (!local) m_specialVictims.erase(victimUserId);
+			m_specialVictims.erase(victimUserId);
+			return;
+		}
+		if (victim == SpecialVictim::Unknown) {
+			// The class could not be resolved (entity already removed, index
+			// reused, ...). Do NOT drop the pending dedicated-event kill: smoker/
+			// boomer/hunter/... each have their own event queued 150 ms behind, and
+			// FlushPendingSpecialKills() will fire it. Erasing here is what made
+			// some special kills silently produce nothing.
+			KFLog("player_death unresolved victim userid=%d; deferring to the dedicated event",
+				victimUserId);
 			return;
 		}
 		int victimEntity = I::EngineClient->GetPlayerForUserID(victimUserId);
@@ -1226,9 +1236,37 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		m_specialVictims.erase(victimUserId);
 		return;
 	} else if (std::strcmp(name, "witch_killed") == 0) {
-		m_infectedDamage.erase(event->GetInt("witchid", 0));
-		KFLog("witch_killed cleanup; themed feedback is owned by player_death");
-		return;
+		// skeeto handles witch_killed as a REAL kill: its dispatch branch runs
+		// SKT_WitchCI_Undo -> SKT_HitFeedback_DetectCrown -> the CI feedback
+		// dispatch. The witch is not a player, so no player_death ever follows,
+		// which means the old "cleanup only, themed feedback is owned by
+		// player_death" branch guaranteed that witch kills showed nothing.
+		const int witchId = event->GetInt("witchid", 0);
+		CaptureFeedbackPosition(event, witchId);
+		// The method (melee / firearm / headshot) was recorded by infected_hurt or
+		// melee_kill just before the kill; reuse it like the common-kill path.
+		if (const auto tracked = m_infectedDamage.find(witchId); tracked != m_infectedDamage.end()) {
+			classification = tracked->second.classification;
+		}
+		m_infectedDamage.erase(witchId);
+		const bool local = IsLocalAttacker(event, "userid");
+		KFLog("event=witch_killed witchid=%d local=%d oneshot=%d method=%s",
+			witchId, local, event->GetBool("oneshot", false),
+			ClassificationName(classification));
+		if (!G::Vars.killFeedbackEnabled || !local) return;
+		if (!G::Vars.killFeedbackSpecial || !G::Vars.killFeedbackWitch) {
+			KFLog("witch kill ignored: disabled special=%d witch=%d",
+				G::Vars.killFeedbackSpecial, G::Vars.killFeedbackWitch);
+			return;
+		}
+		// A witch death can also surface as infected_death; drop the second copy.
+		const float now = SimulationTime();
+		if (witchId > 0 && witchId == m_lastCommonEntityId && now - m_lastCommonKillTime <= 0.5f) {
+			KFLog("witch kill duplicate ignored witchid=%d", witchId);
+			return;
+		}
+		m_lastCommonEntityId = witchId;
+		m_lastCommonKillTime = now;
 	} else {
 		return;
 	}

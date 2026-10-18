@@ -205,8 +205,11 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 和身份缓存来源（spawn/ability/tank_spawn）。普通感染者
 与特感分别受总开关控制，Smoker、Boomer、Hunter、Spitter、Jockey、Charger、Tank 和 Witch 另有
 独立开关。玩家型特感优先从死亡实体的 `m_zombieClass` 识别，实体不可用时回退 userid 缓存与
-`victimname`。`player_death` 是全部 SI 和 Witch 的权威击杀来源；专用死亡事件只作 150ms 延迟回退，
-`witch_killed` 不生成主题反馈，只清理状态。
+`victimname`。`player_death` 是**玩家型** SI 的权威击杀来源；专用死亡事件只作 150ms 延迟回退。
+**Witch 不是玩家实体，永远不会产生 `player_death`**，因此 `witch_killed` 必须自己走完整击杀路径
+（与 skeeto 一致：它的 `witch_killed` 分支会执行 `WitchCI_Undo` → `HitFeedback_DetectCrown` → CI 派发）：
+先按 `userid` 校验本地击杀，再按 `killFeedbackSpecial` + `killFeedbackWitch` 两级开关和击杀方式过滤，
+最后走 **CI 通道**（不增加 SI 连杀计数），并与同一帧内的 `infected_death` 去重。
 
 爆头、近战和爆炸使用正交标志而非互斥枚举；全部 SI/Witch 击杀先增加滚动 streak，再按主题 `wrap`
 选择 `streak_N`，普通感染者不参与。主题从外部 addon
