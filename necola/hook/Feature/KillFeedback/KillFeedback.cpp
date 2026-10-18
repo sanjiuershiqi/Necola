@@ -882,8 +882,8 @@ void KillFeedback::HandleEvent(IGameEvent* event) {
 		// perfect_crown, and crown as the generic fallback.
 		const bool meleeKill = IsWeaponKill(event);
 		const char* fxKey = meleeKill
+			? "melee_crown"
 			: (event->GetBool("oneshot", false) ? "perfect_crown" : "crown");
-		DispatchFx(fxKey, kill.position);
 
 		HandleKill(kill);
 		return;
