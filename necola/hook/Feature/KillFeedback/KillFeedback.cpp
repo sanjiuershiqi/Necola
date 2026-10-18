@@ -28,6 +28,11 @@ constexpr std::uint32_t kTrackLifetimeMs = 1000;
 
 constexpr int kDmgBlast = 1 << 6;
 
+float PresentationTime() {
+	if (I::GlobalVars) return I::GlobalVars->curtime;
+	return static_cast<float>(GetTickCount()) / 1000.0f;
+}
+
 std::uint32_t Now() {
 	return static_cast<std::uint32_t>(GetTickCount());
 }
@@ -317,7 +322,7 @@ KillFeedback::Victim KillFeedback::VictimFromEvent(IGameEvent* event) const {
 			if (live != Victim::Unknown) return live;
 		}
 	}
-	const auto cached = m_victims.find(userId);
+	const auto cached = m_victims.find(ent);
 	if (cached != m_victims.end()) return cached->second;
 	return Victim::Unknown;
 }
@@ -795,10 +800,9 @@ void KillFeedback::RefreshSpecialVictims() {
 		auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
 		if (!player) continue;
 		const Victim victim = VictimFromZombieClass(player->m_zombieClass());
-		const int userId = I::EngineClient->GetPlayerUserId(index);
 		if (userId <= 0) continue;
-		if (victim == Victim::Unknown) m_victims.erase(userId);
-		else m_victims[userId] = victim;
+		if (victim == Victim::Unknown) m_victims.erase(index);
+		else m_victims[index] = victim;
 	}
 }
 
