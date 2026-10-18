@@ -12,6 +12,7 @@
 #include "./Feature/AdsSupport/AdsSupport.h"
 #include "./Feature/CampaignTimer/CampaignTimer.h"
 #include "./Feature/KillFeedback/KillFeedback.h"
+#include "./Feature/ParticlePlatform/ParticlePlatform.h"
 #include "./Feature/HitFeedback/HitFeedback.h"
 #include "../sdk/L4NEnv.h"
 #include "../sdk/l4d2/interfaces/IConVar.h"
@@ -210,6 +211,13 @@ static bool RunLoadBody()
 	}
 	ELog("Step 5 done");
 
+	// skeeto's 'particle platform' (ported): hook the engine's particle-manifest
+	// parser so particles/skeeto_*.txt from ANY mounted pack (loose or VPK) gets
+	// registered, instead of requiring one specific content pack.
+	ELog("Step 5.5: ParticlePlatform::Install()");
+	ParticlePlatform::Install();
+	ELog("Step 5.5 done");
+
 	// Load persistent ADS/SequenceModify configuration
 	ELog("Step 6: LoadConfig / AdsMgr.LoadConfig");
 	{
@@ -335,6 +343,8 @@ void CGlobal_ModuleEntry::undo()
 	F::CmdMgr.Shutdown();
 	ELog("undo: restore RecvProp proxies");
 	F::SModify.RecvPropDataUnhook();
+	ELog("undo: remove particle platform hook");
+	ParticlePlatform::Shutdown();
 	ELog("undo: G::Hooks.undo()");
 	G::Hooks.undo();
 	ELog("undo: G::InputManagerI.undo()");
