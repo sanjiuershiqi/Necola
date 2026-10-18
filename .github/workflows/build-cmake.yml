@@ -1,0 +1,88 @@
+name: Build (CMake + Ninja + sccache)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  VCPKG_DEFAULT_TRIPLET: x86-windows
+  VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 32-bit MSVC environment: Ninja picks up the compiler from vcvars.
+      - name: Setup MSVC (x86)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
+
+      - name: Install ninja
+        shell: pwsh
+        run: choco install ninja --no-progress -y
+
+      - name: Cache vcpkg
+        id: cache-vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            vcpkg
+            ~/AppData/Local/vcpkg/archives
+          key: vcpkg-cmake-x86-${{ runner.os }}-20260812
+
+      - name: Bootstrap vcpkg
+        if: steps.cache-vcpkg.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
+          & vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          & vcpkg\vcpkg.exe install spdlog minhook inipp --triplet x86-windows
+
+      - name: Show vcpkg list
+        shell: pwsh
+        run: '& vcpkg\vcpkg.exe list'
+
+      - name: Configure (Ninja, Release, sccache)
+        shell: pwsh
+        run: |
+          cmake -S . -B build-cmake -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x86-windows `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build-cmake --parallel
+
+      - name: sccache stats
+        shell: pwsh
+        run: sccache --show-stats
+
+      - name: Locate artifact
+        id: artifact
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Path build-cmake -Recurse -Filter "necola_ads.dll" | Select-Object -First 1
+          if (-not $dll) { throw "necola_ads.dll not found" }
+          "path=$($dll.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: necola_ads-cmake-${{ github.sha }}
+          path: ${{ steps.artifact.outputs.path }}
+          if-no-files-found: error
