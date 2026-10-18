@@ -3,6 +3,7 @@
 #include "../../Vars.h"
 #include "../../../diag.h"
 #include "../../../sdk/l4d2/interfaces/IConVar.h"
+#include "../WeaponClass/WeaponClass.h"
 #include "../../../sdk/utils/FeatureConfigManager.h"
 #include "../../../sdk/utils/Offsets.h"
 #include "../../../sdk/l4d2/interfaces/FileSystem.h"
@@ -66,17 +67,11 @@ bool ContainsNoCase(const char* value, const char* needle) {
 
 // skeeto keeps a fixed list of melee weapon names; match on substrings so the
 // weapon_id-less events still classify.
+// Delegates to the ported SKT_Weapon_ClassifyName table: a weapon counts as melee
+// when its class name maps to 3 (Melee) or 4 (Chainsaw), the same ids skeeto
+// accepts in SKT_Evt_CheckWeaponKill.
 bool IsMeleeWeaponName(const char* weapon) {
-	if (!weapon || !*weapon) return false;
-	static const char* const kMelee[] = {
-		"melee", "chainsaw", "machete", "katana", "cricket", "crowbar", "tonfa",
-		"frying", "golf", "knife", "shovel", "pitchfork", "electric", "fireaxe",
-		"axe", "bat", "pipe", "pool", "riot", "nightstick", "sword",
-	};
-	for (const char* needle : kMelee) {
-		if (ContainsNoCase(weapon, needle)) return true;
-	}
-	return false;
+	return WeaponClass::IsMelee(WeaponClass::ClassifyName(weapon));
 }
 
 // SEH-guarded wildcard scan (noinline + POD only, MSVC C2712).
