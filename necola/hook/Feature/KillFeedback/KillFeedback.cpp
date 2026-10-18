@@ -800,7 +800,6 @@ void KillFeedback::RefreshSpecialVictims() {
 		auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
 		if (!player) continue;
 		const Victim victim = VictimFromZombieClass(player->m_zombieClass());
-		if (userId <= 0) continue;
 		if (victim == Victim::Unknown) m_victims.erase(index);
 		else m_victims[index] = victim;
 	}
