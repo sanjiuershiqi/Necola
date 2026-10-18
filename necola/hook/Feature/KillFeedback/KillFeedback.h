@@ -64,6 +64,8 @@ struct KillTheme {
 	std::string id;
 	std::string name;
 	std::string channel; // "si" | "ci"
+	int sort = 0;          // theme ordering (skeeto's 'sort')
+	std::string note;     // free-form comment (skeeto's 'note')
 	bool streakEnabled = false;
 	int streakWrap = 0;
 	int streakPriority = 10;

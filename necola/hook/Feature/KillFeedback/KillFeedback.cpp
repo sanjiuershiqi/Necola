@@ -227,6 +227,11 @@ void KillFeedback::LoadThemes() {
 			};
 			theme.name = str("name");
 			theme.channel = str("channel");
+			theme.note = str("note");
+			if (const auto sort = doc.find("sort");
+				sort != doc.end() && sort->is_number_integer()) {
+				theme.sort = sort->get<int>();
+			}
 			if (const auto streak = doc.find("streak"); streak != doc.end() && streak->is_object()) {
 				if (const auto v = streak->find("enabled"); v != streak->end() && v->is_boolean()) {
 					theme.streakEnabled = v->get<bool>();
@@ -271,6 +276,9 @@ void KillFeedback::LoadThemes() {
 			Log("theme %s parse failed", id.c_str());
 		}
 	}
+	// skeeto's 'sort' key orders themes; keep resolution deterministic.
+	std::sort(m_themes.begin(), m_themes.end(),
+		[](const KillTheme& a, const KillTheme& b) { return a.sort < b.sort; });
 	m_themesLoaded = !m_themes.empty();
 	Log("themes loaded=%d", static_cast<int>(m_themes.size()));
 	WarmupParticles();
