@@ -1126,9 +1126,22 @@ void KillFeedback::OnGameEvent(IGameEvent* event) {
 		const KillClassification classification = ClassifySpecialKill(event);
 		m_playerDamage[victimUserId] = {victim, classification, SimulationTime()};
 		m_specialVictims[victimUserId] = victim;
+		const int health = event->GetInt("health", -1);
 		KFLog("tracked player_hurt victim=%s userid=%d health=%d method=%s",
-			SpecialVictimName(victim), victimUserId, event->GetInt("health", -1),
+			SpecialVictimName(victim), victimUserId, health,
 			ClassificationName(classification));
+		// Themed hit feedback for specials. Before this, the only route into the
+		// renderer was HitFeedback::ProcessSpecialHit -> OnSpecialHealthDrop, i.e.
+		// themed hits depended on the damage-number HUD's health tracking and
+		// normally never fired — kills showed feedback, plain hits did not.
+		// skeeto instead feeds its own SI hit queue from the hit event
+		// (SKT_HitFeedback_ProcessSiHitEvents -> Fx_DispatchEventBlock with a
+		// 110 ms duration and a 70 ms throttle), so queue it here directly.
+		// health == 0 means this hit was lethal: the death event renders the kill
+		// style, and queueing a hit as well would make both fight over the overlay.
+		if (G::Vars.killFeedbackHitMode != 0 && health > 0) {
+			OnSpecialHealthDrop(m_feedbackPosition.valid ? m_feedbackPosition.value : Vector());
+		}
 		return;
 	}
 

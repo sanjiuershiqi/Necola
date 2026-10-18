@@ -664,9 +664,9 @@ public:
 			registerMenu(siThemeMenu);
 			if (siThemeMenu) {
 				for (const auto& theme : SiThemeChoices()) {
-					const char* id = theme.id;
+					const std::string id = theme.id;
 					siThemeMenu->addOption(theme.label, [this, id]() {
-						if (std::strcmp(id, "off") != 0) {
+						if (id != "off") {
 							G::Vars.killFeedbackSiDedicated = true;
 							auto hitMenu = FindMenuById("kill_hit_tip");
 							if (hitMenu) hitMenu->setSwitchStateByName("SI视觉优先", true);
@@ -681,7 +681,7 @@ public:
 			registerMenu(ciThemeMenu);
 			if (ciThemeMenu) {
 				for (const auto& theme : CiThemeChoices()) {
-					const char* id = theme.id;
+					const std::string id = theme.id;
 					ciThemeMenu->addOption(theme.label, [this, id]() {
 						F::KillFeedbackMgr.SetTheme("ci", id);
 						RefreshKillFeedbackLabels();
@@ -863,6 +863,36 @@ public:
 			(G::Vars.hitFeedbackEnabled ? "开]" : "关]"));
 	}
 
+	// Adds any theme that the menu does not offer yet. The menus are built once at
+	// init (before themes are discovered), so without this a theme shipped inside
+	// a pack could be loaded by KillFeedback but never be selectable.
+	void AppendDiscoveredThemes(const std::shared_ptr<MenuNode>& menu, const char* channel,
+		const std::vector<ThemeChoice>& choices) {
+		if (!menu) return;
+		for (const auto& theme : choices) {
+			// Returns false when no item carries this prefix — used as the
+			// "already present?" probe.
+			if (menu->updateOptionNameByPrefix(theme.label, theme.label)) continue;
+			const std::string id = theme.id;
+			if (channel[0] == 's') {
+				menu->addOption(theme.label, [this, id]() {
+					if (id != "off") {
+						G::Vars.killFeedbackSiDedicated = true;
+						auto hitMenu = FindMenuById("kill_hit_tip");
+						if (hitMenu) hitMenu->setSwitchStateByName("SI视觉优先", true);
+					}
+					F::KillFeedbackMgr.SetTheme("si", id);
+					RefreshKillFeedbackLabels();
+				});
+			} else {
+				menu->addOption(theme.label, [this, id]() {
+					F::KillFeedbackMgr.SetTheme("ci", id);
+					RefreshKillFeedbackLabels();
+				});
+			}
+		}
+	}
+
 	void RefreshKillFeedbackLabels() {
 		RefreshRootLabels();
 		auto menu = FindMenuById("kill_feedback");
@@ -878,6 +908,13 @@ public:
 				(G::Vars.killFeedbackHitMode == 1 ? "仅SI命中]" : "全部命中]")));
 		menu->updateSubMenuItemName("kill_sound_volume", std::string("音效音量 [") +
 			std::to_string(G::Vars.killFeedbackSoundVolume) + "%]");
+
+		// The theme menus were built once at init, before any theme had been
+		// discovered; append whatever the file-system scan has found since, so a
+		// pack's own theme becomes selectable without reloading the map. Runs
+		// before the rename pass below so the "[当前]" marks stay authoritative.
+		AppendDiscoveredThemes(FindMenuById("kill_si_theme"), "si", SiThemeChoices());
+		AppendDiscoveredThemes(FindMenuById("kill_ci_theme"), "ci", CiThemeChoices());
 
 		auto siMenu = FindMenuById("kill_si_theme");
 		if (siMenu) {
@@ -1237,36 +1274,59 @@ public:
 
 	private:
 		struct ThemeChoice {
-			const char* label;
-			const char* display;
-			const char* id;
+			std::string label;
+			std::string display;
+			std::string id;
 		};
 
-		static const std::array<ThemeChoice, 9>& SiThemeChoices() {
-			static const std::array<ThemeChoice, 9> choices = {{
+		// Theme lists are no longer a fixed table: the plugin discovers
+		// skeeto/skeeto_*.json on the file system (skeeto-style wildcard scan), so
+		// whatever a pack ships has to show up in the menu. The tables below are
+		// only the built-in base — they keep the familiar labels for the themes
+		// that ship with skeeto_killfeed.vpk.
+		static const std::vector<ThemeChoice>& BuiltinThemeChoices(const char* channel) {
+			static const std::vector<ThemeChoice> si = {
 				{"关闭", "关闭", "off"}, {"特感 · 瓦罗兰特", "瓦罗兰特", "si_valorant"},
 				{"特感 · CF", "CF", "si_cf"}, {"特感 · 落雷", "落雷", "si_lightning"},
 				{"特感 · 爱心冲击", "爱心", "si_love"}, {"特感 · 星星", "星星", "si_star"},
 				{"特感 · 三角洲Advanced", "三角洲 Adv.", "si_deltaforce_advanced"},
 				{"特感 · 战地1Advanced", "战地1 Adv.", "si_bf1_advanced"},
 				{"特感 · 战地2042Advanced", "战地2042 Adv.", "si_bf2042_advanced"},
-			}};
-			return choices;
-		}
-
-		static const std::array<ThemeChoice, 10>& CiThemeChoices() {
-			static const std::array<ThemeChoice, 10> choices = {{
+			};
+			static const std::vector<ThemeChoice> ci = {
 				{"关闭", "关闭", "off"}, {"普感 · OW", "OW", "ci_ow"},
 				{"普感 · Apex", "Apex", "ci_apex"}, {"普感 · CF", "CF", "ci_cf"},
 				{"普感 · COD", "COD", "ci_cod"}, {"普感 · BF5", "BF5", "ci_bf5"},
 				{"普感 · BF1", "BF1", "ci_bf1"}, {"普感 · BF2042", "BF2042", "ci_bf2042"},
 				{"普感 · 三角洲", "三角洲", "ci_deltaforce"}, {"普感 · L4D2", "L4D2", "ci_l4d2"},
-			}};
-			return choices;
+			};
+			return channel[0] == 's' ? si : ci;
 		}
 
-		template<std::size_t N>
-		static std::string ThemeDisplayName(const std::array<ThemeChoice, N>& choices,
+		// Built-in base plus every theme the file-system scan discovered.
+		static const std::vector<ThemeChoice>& ThemeChoices(const char* channel) {
+			static std::vector<ThemeChoice> siCache;
+			static std::vector<ThemeChoice> ciCache;
+			std::vector<ThemeChoice>& cache = channel[0] == 's' ? siCache : ciCache;
+			cache = BuiltinThemeChoices(channel);
+
+			const std::string wanted(channel);
+			for (const auto& theme : F::KillFeedbackMgr.Themes()) {
+				if (theme.channel != wanted || theme.id.empty() || theme.id == "off") continue;
+				const bool known = std::any_of(cache.begin(), cache.end(),
+					[&theme](const ThemeChoice& choice) { return choice.id == theme.id; });
+				if (known) continue;
+				const std::string display = theme.name.empty() ? theme.id : theme.name;
+				const std::string prefix = wanted == "si" ? "特感 · " : "普感 · ";
+				cache.push_back({prefix + display, display, theme.id});
+			}
+			return cache;
+		}
+
+		static const std::vector<ThemeChoice>& SiThemeChoices() { return ThemeChoices("si"); }
+		static const std::vector<ThemeChoice>& CiThemeChoices() { return ThemeChoices("ci"); }
+
+		static std::string ThemeDisplayName(const std::vector<ThemeChoice>& choices,
 			const std::string& id) {
 			for (const auto& choice : choices) {
 				if (id == choice.id) return choice.display;
