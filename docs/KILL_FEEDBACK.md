@@ -72,6 +72,13 @@ SI 连杀计数；特感 streak 是滚动计数并按主题 `wrap` 循环，切�
 - `particle`/`particles[]` 使用 skeeto 原版 `DispatchParticleEffect` 通道；CF、Valorant 的击杀/连杀
   是屏幕粒子，落雷、爱心、星星和 Advanced 主题按 `world=true` 在目标位置生成。粒子在实际触发时
   按需预热，不在地图载入期间批量扫描或预热 VPK。
+- **粒子限流**：与 skeeto 的 `SKT_Particle_Dispatch` 一致，**1000ms 窗口内最多派发 32 次**，
+  超出的请求直接丢弃并写一行日志；多杀不会再堆叠出几十个特效。
+- **世界坐标回退链**：`world=true` 时依次取 事件 `victim_x/y/z` → 目标实体原点 → 上次
+  `bullet_impact`；三者都缺失时回退到**本地玩家原点**（此前会落在 `(0,0,0)`，即地图原点／虚空）。
+- **预热诊断**：`PrecacheParticleSystem` 的返回索引会写进日志
+  （`particle precached <name> (index=N warmup=0/1)`）。`index <= 0` 基本等于"该系统没注册"，
+  通常意味着主题的 pcf 缺失或 `skeeto_killfeed.vpk` 未挂载——排障先看这一行。
 - 命令解锁：只对 `r_screenoverlay` 清 `FCVAR_CHEAT` 并加 `FCVAR_CLIENTCMD_CAN_EXECUTE`（与
   `UnlockCommands()` 一致）。**音效不走 `play`/`playvol`**：优先 `IMatSystemSurface::PlaySound`
   （本地 UI 采样，不碰 sound-script 缓存），显式音量时走 `IEngineSound::EmitAmbientSound`，

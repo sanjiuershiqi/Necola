@@ -379,8 +379,15 @@ void KillFeedback::PrecacheParticles(const KillStyle& style) {
 		MEMORY_BASIC_INFORMATION info = {};
 		if (!VirtualQuery(reinterpret_cast<const void*>(precache), &info, sizeof(info)) ||
 			(info.Protect & 0xF0) == 0) return;
-		precache(name.c_str());
+		const int index = precache(name.c_str());
 		m_precachedParticles.insert(name);
+		// A non-positive definition index is the cheapest existence probe we have
+		// (skeeto likewise precaches only the systems a selected style
+		// references). index <= 0 usually means the system was never registered,
+		// i.e. the theme's pcf is missing or skeeto_killfeed.vpk is not mounted.
+		// The off-screen dispatch below forces late-loaded pcf systems to
+		// register; keep it, but report it so a "particle never shows" report can
+		// be triaged from the log alone.
 		if (U::Offsets.m_dwDispatchParticleEffect3) {
 			using DispatchFn = void(__cdecl*)(const char*, Vector*, Vector*, int, int, int);
 			const DispatchFn dispatch = reinterpret_cast<DispatchFn>(U::Offsets.m_dwDispatchParticleEffect3);
@@ -392,7 +399,8 @@ void KillFeedback::PrecacheParticles(const KillStyle& style) {
 				dispatch(name.c_str(), &hidden, &angles, 2, 0, 0);
 			}
 		}
-		KFLog("particle precached %s", name.c_str());
+		KFLog("particle precached %s (index=%d warmup=%d)", name.c_str(), index,
+			U::Offsets.m_dwDispatchParticleEffect3 ? 1 : 0);
 	};
 	one(style.particle);
 	for (const auto& name : style.particles) one(name);
@@ -407,7 +415,23 @@ void KillFeedback::SpawnParticles(const KillStyle& style) {
 	if (!VirtualQuery(reinterpret_cast<const void*>(dispatch), &info, sizeof(info)) ||
 		(info.Protect & 0xF0) == 0) return;
 	Vector origin;
-	if (style.world && m_feedbackPosition.valid) origin = m_feedbackPosition.value;
+	if (style.world) {
+		if (m_feedbackPosition.valid) {
+			origin = m_feedbackPosition.value;
+		} else if (I::EngineClient && I::ClientEntityList) {
+			// skeeto resolves the world position from the victim coordinates,
+			// then the victim entity, then the last bullet_impact. If all three
+			// are missing, leaving the origin at (0,0,0) would spawn the effect
+			// at the map origin, i.e. usually inside the void. Fall back to the
+			// local player so a world effect stays visible and in-bounds.
+			const int localIndex = I::EngineClient->GetLocalPlayer();
+			if (localIndex > 0) {
+				if (auto* localEntity = I::ClientEntityList->GetClientEntity(localIndex)) {
+					origin = localEntity->GetAbsOrigin();
+				}
+			}
+		}
+	}
 	Vector angles;
 
 	// skeeto's dispatch window: at most PARTICLE_MAX_PER_WINDOW dispatches per
