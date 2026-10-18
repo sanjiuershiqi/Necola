@@ -78,9 +78,7 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          # -j0 asks xmake for one job per logical CPU; --rebuild is deliberately
-          # NOT used so a restored build directory gives an incremental build.
-          xmake -y -v -j0
+          xmake -y -v
 
       - name: Locate artifact
         id: artifact
