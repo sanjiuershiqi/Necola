@@ -325,8 +325,6 @@ bool KillFeedback::IsLocalAttacker(IGameEvent* event, const char* field) const {
 	const int attackerEntId = event->GetInt("attackerentid", 0);
 	return attackerEntId > 0 && attackerEntId == localIndex;
 }
-		event->GetInt("attackerentid", 0) == I::EngineClient->GetLocalPlayer();
-}
 
 KillFeedback::Victim KillFeedback::VictimFromZombieClass(int zombieClass) const {
 	switch (zombieClass) {
