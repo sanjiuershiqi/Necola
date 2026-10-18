@@ -281,8 +281,34 @@ void KillFeedback::LoadThemes() {
 			KFLog("theme %s parse failed", id);
 		}
 	}
-	m_themesLoaded = m_themes.size() >= 17;
+	m_themesLoaded = !m_themes.empty();
 	KFLog("theme load complete count=%d", static_cast<int>(m_themes.size()));
+	WarmupParticles();
+}
+
+void KillFeedback::WarmupParticles() {
+	// Precaching only on demand means the FIRST kill of a map pays the cost and
+	// can visibly miss its particle (the precache happens after the dispatch in
+	// that frame). skeeto precaches exactly the systems a selected style
+	// references, so do the same as soon as the theme selection is known.
+	// Guarded to in-game: precaching outside a level would mark systems as
+	// "done" without the client having registered them.
+	if (!I::EngineClient || !I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
+
+	auto warmTheme = [this](const KillTheme& theme) {
+		PrecacheParticles(theme.hit);
+		PrecacheParticles(theme.kill);
+		PrecacheParticles(theme.headshot);
+		PrecacheParticles(theme.melee);
+		for (const auto& streak : theme.streak) PrecacheParticles(streak);
+		PrecacheParticles(theme.streakDefault);
+	};
+	if (m_siTheme != "off") {
+		if (const KillTheme* theme = FindTheme("si", m_siTheme)) warmTheme(*theme);
+	}
+	if (m_ciTheme != "off") {
+		if (const KillTheme* theme = FindTheme("ci", m_ciTheme)) warmTheme(*theme);
+	}
 }
 
 const KillTheme* KillFeedback::FindTheme(const char* channel, const std::string& themeId) const {
@@ -304,6 +330,8 @@ void KillFeedback::SetTheme(const char* channel, const std::string& themeId) {
 	else m_ciTheme = themeId;
 	m_themeFailureReported = false;
 	SaveConfig();
+	// Warm the newly selected theme now instead of on the first kill.
+	WarmupParticles();
 }
 
 bool KillFeedback::HitCheck(const KillTheme& theme, const char* eventName, bool headshot,

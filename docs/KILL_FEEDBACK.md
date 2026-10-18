@@ -70,8 +70,9 @@ SI 连杀计数；特感 streak 是滚动计数并按主题 `wrap` 循环，切�
 - 样式字段按 skeeto 事件块的上限截断：序列 **30** 帧、`particles[]` **8** 条、`sounds[]` **8** 条、
   `overlay_ms` **≤5000ms**。超出部分静默丢弃，不会让整份主题失效。
 - `particle`/`particles[]` 使用 skeeto 原版 `DispatchParticleEffect` 通道；CF、Valorant 的击杀/连杀
-  是屏幕粒子，落雷、爱心、星星和 Advanced 主题按 `world=true` 在目标位置生成。粒子在实际触发时
-  按需预热，不在地图载入期间批量扫描或预热 VPK。
+  是屏幕粒子，落雷、爱心、星星和 Advanced 主题按 `world=true` 在目标位置生成。粒子**在主题选定
+  时预热该主题引用的系统**（不在整库/整 VPK 批量扫描），因此第一次击杀不会再因为"边派发边预热"
+  而丢帧或丢特效；主题切换时也会立即预热新主题。
 - **粒子限流**：与 skeeto 的 `SKT_Particle_Dispatch` 一致，**1000ms 窗口内最多派发 32 次**，
   超出的请求直接丢弃并写一行日志；多杀不会再堆叠出几十个特效。
 - **世界坐标回退链**：`world=true` 时依次取 事件 `victim_x/y/z` → 目标实体原点 → 上次

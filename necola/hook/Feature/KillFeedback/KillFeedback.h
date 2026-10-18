@@ -84,6 +84,7 @@ public:
 
 	bool InitListeners();
 	void LoadThemes();
+	void WarmupParticles();
 	void OnGameEvent(IGameEvent* event);
 	void OnSpecialHealthDrop(const Vector& position);
 	void RefreshSpecialVictims();
