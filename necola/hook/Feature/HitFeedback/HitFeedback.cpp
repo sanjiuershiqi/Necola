@@ -141,30 +141,63 @@ void HitFeedback::UnhookHealthProxy() {
 	m_healthProxyInstalled = false;
 }
 
-bool HitFeedback::IsLocalHitCorrelated(int entIndex) const {
+// Cone test shared by the hit-confirmation gate. skeeto aims 40 units above the
+// victim origin and requires the view vector to point at it, with the threshold
+// depending on range (see kFarCone*/kNearCone*). Unlike the old version this does
+// not require a C_TerrorPlayer target, so common infected and witches qualify.
+bool HitFeedback::IsInViewConeAtRange(int entIndex, float maxDistance, float minDot) const {
 	if (entIndex <= 0 || !I::EngineClient || !I::ClientEntityList) return false;
 	if (!I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return false;
-	const std::uint32_t now = NowTick();
-	const bool recentImpact = now - m_lastImpactTick <= 180;
-	const bool recentAttack = now - m_lastAttackTick <= 400;
-	if (!recentImpact && !recentAttack) return false;
 	auto* localEntity = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer());
 	auto* local = localEntity ? localEntity->As<C_TerrorPlayer*>() : nullptr;
-	auto* targetEntity = I::ClientEntityList->GetClientEntity(entIndex);
-	auto* target = targetEntity ? targetEntity->As<C_TerrorPlayer*>() : nullptr;
-	if (!local || !target || target->GetTeamNumber() != 3) return false;
+	auto* target = I::ClientEntityList->GetClientEntity(entIndex);
+	if (!local || !target) return false;
 	const Vector eye = local->m_vecOrigin() + local->m_vecViewOffset();
-	Vector targetPoint = target->m_vecOrigin();
+	Vector targetPoint = target->GetAbsOrigin();
 	targetPoint.z += 40.0f;
 	Vector direction = targetPoint - eye;
 	const float distance = direction.Normalize();
-	if (distance > (recentImpact ? 5000.0f : 110.0f)) return false;
+	if (distance > maxDistance) return false;
+	if (distance <= 0.001f) return true;
 	Vector viewAngles;
 	Vector forward;
 	I::EngineClient->GetViewAngles(viewAngles);
 	U::Math.AngleVectors(viewAngles, &forward);
 	forward.Normalize();
-	return forward.Dot(direction) >= (recentImpact ? 0.93f : 0.90f);
+	return forward.Dot(direction) >= minDot;
+}
+
+// Port of the gate in SKT_Si_TrackHitFeedback. Order matters and mirrors skeeto:
+//   valid ids/entity -> far cone (gun) -> [per-victim lock] -> 70 ms throttle ->
+//   near cone -> accept & lock the victim for 400 ms.
+// A repeat on the locked victim skips the throttle and both cone tests, which is
+// what lets a burst or a shotgun pellet spread register more than once.
+bool HitFeedback::ConfirmHit(int entIndex, int userId, int damage, bool gunHit) {
+	if (damage <= 0) return false;
+	if (entIndex <= 0 || !I::ClientEntityList) return false;
+	if (!I::ClientEntityList->GetClientEntity(entIndex)) return false;
+	if (userId < 0 || userId > 64) return false; // 0 = entity without a user id
+	if (gunHit && !IsInViewConeAtRange(entIndex, kFarConeDistance, kFarConeDot)) return false;
+
+	const std::uint32_t now = NowTick();
+	const bool locked = m_lockEntity == entIndex && m_lockUserId == userId && m_lockUntil != 0 &&
+		static_cast<std::int32_t>(m_lockUntil - now) >= 0;
+	if (!locked) {
+		if (now - m_lastFeedbackTick < kHitFeedbackThrottleMs) return false;
+		// The near cone is only required for NON-gun hits — skeeto's condition is
+		// "a7 == 0 && !InViewCone(110, 0.90)". Gun hits already passed the far
+		// cone above, and re-testing them up close would eat shotgun pellets.
+		if (!gunHit && !IsInViewConeAtRange(entIndex, kNearConeDistance, kNearConeDot)) return false;
+		m_lockUserId = userId;
+		m_lockEntity = entIndex;
+		m_lockUntil = now + kVictimLockMs;
+	}
+	m_lastFeedbackTick = now;
+	return true;
+}
+
+bool HitFeedback::IsLocalHitCorrelated(int entIndex) const {
+	return IsInViewConeAtRange(entIndex, kFarConeDistance, kFarConeDot);
 }
 
 void HitFeedback::ProcessSpecialHit(int entIndex, int damage, const Vector& origin, float headZ,
@@ -196,14 +229,17 @@ void HitFeedback::OnHealthChanged(int entIndex, int oldHealth, int newHealth) {
 }
 
 void HitFeedback::ProcessHealthChange(int entIndex, int oldHealth, int newHealth) {
-	if (!IsLocalHitCorrelated(entIndex) || !I::ClientEntityList) return;
+	// Proxy path: no game event, so no user id, and not necessarily a gun shot.
+	if (!I::ClientEntityList) return;
 	auto* entity = I::ClientEntityList->GetClientEntity(entIndex);
 	auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
 	if (!player) return;
+	const int damage = oldHealth - newHealth;
+	if (!ConfirmHit(entIndex, 0, damage, /*gunHit=*/false)) return;
 	const Vector origin = player->m_vecOrigin();
 	float headZ = player->m_vecViewOffset().z;
 	if (headZ < 20.0f || headZ > 120.0f) headZ = 50.0f;
-	ProcessSpecialHit(entIndex, oldHealth - newHealth, origin, headZ + 2.0f, true);
+	ProcessSpecialHit(entIndex, damage, origin, headZ + 2.0f, true);
 }
 
 void HitFeedback::PumpHealthChanges() {
@@ -350,7 +386,10 @@ void HitFeedback::OnGameEvent(IGameEvent* event) {
 		const Vector view = player->m_vecViewOffset();
 		if (view.z > 20.0f && view.z < 120.0f) headZ = view.z + 2.0f;
 		const bool special = IsSpecialEntity(victimEnt);
-		if (special) ProcessSpecialHit(victimEnt, event->GetInt("dmg_health", 0), origin, headZ, false);
+		if (special && ConfirmHit(victimEnt, event->GetInt("userid", 0),
+				event->GetInt("dmg_health", 0), /*gunHit=*/true)) {
+			ProcessSpecialHit(victimEnt, event->GetInt("dmg_health", 0), origin, headZ, false);
+		}
 		return;
 	}
 
@@ -362,26 +401,19 @@ void HitFeedback::OnGameEvent(IGameEvent* event) {
 		const Vector& origin = entity->GetAbsOrigin();
 		const bool witch = IsWitchEntity(entIndex);
 		const int damage = event->GetInt("amount", 0);
-		if (witch) {
-			if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackNumbers) {
-				RecordDamage(entIndex, damage, origin.x, origin.y, origin.z, 50.0f);
-			}
-			if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackHitMarker && damage > 0) {
-				TriggerHitMarker();
-			}
-		} else {
-			if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackCommon &&
-				G::Vars.hitFeedbackNumbers) {
-				RecordDamage(entIndex, damage, origin.x, origin.y, origin.z, 50.0f);
-			}
-			// The crosshair marker means "my shot connected" and, like skeeto's,
-			// must not depend on the damage-number options. It used to be raised
-			// only for witch hits (and for specials via player_hurt), while the
-			// health-proxy fallback that was supposed to cover everything else is
-			// never installed — so common-infected hits showed no marker at all.
-			if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackHitMarker && damage > 0) {
-				TriggerHitMarker();
-			}
+		// Common infected and witches have no user id, so the victim lock keys on
+		// the entity index. Same Skeeto gate as the special path: far cone, 70 ms
+		// throttle, near cone, then a 400 ms victim lock that lets repeats through.
+		const bool confirmed = ConfirmHit(entIndex, 0, damage, /*gunHit=*/true);
+		if (!confirmed) return;
+		if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackNumbers &&
+			(witch || G::Vars.hitFeedbackCommon)) {
+			RecordDamage(entIndex, damage, origin.x, origin.y, origin.z, 50.0f);
+		}
+		// The crosshair marker means "my shot connected" and, like skeeto's, does
+		// not depend on the damage-number options.
+		if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackHitMarker) {
+			TriggerHitMarker();
 		}
 	}
 }
@@ -504,6 +536,12 @@ void HitFeedback::Reset() {
 	m_lastSpecialHitDamage = 0;
 	m_lastSpecialHitFromProxy = false;
 	m_pendingHealthChangeCount = 0;
+	// Drop the hit-confirmation lock/throttle: a new round must not inherit the
+	// previous victim's 400 ms lock.
+	m_lastFeedbackTick = 0;
+	m_lockUserId = 0;
+	m_lockEntity = 0;
+	m_lockUntil = 0;
 }
 
 void HitFeedback::Shutdown() {

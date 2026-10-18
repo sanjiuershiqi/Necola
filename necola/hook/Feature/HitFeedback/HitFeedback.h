@@ -40,6 +40,21 @@ private:
 	static constexpr std::uint32_t kHitMarkerDurationMs = 300;
 	static constexpr int kPaletteSize = 10;
 
+	// ---- hit-confirmation constants, taken from SKT_Si_TrackHitFeedback ----
+	// Gate applied before a hit may raise the crosshair marker / damage number:
+	//   1. valid player id (1..64), live entity
+	//   2. gun hits must be inside a far view cone: 5000 units, dot >= 0.93
+	//   3. global throttle: 70 ms since the last accepted hit
+	//   4. otherwise a near cone: 110 units, dot >= 0.90
+	//   5. accepted hits lock that victim for 400 ms, and repeats inside the lock
+	//      skip steps 3+4 entirely (this is what makes burst fire register).
+	static constexpr std::uint32_t kHitFeedbackThrottleMs = 70;
+	static constexpr std::uint32_t kVictimLockMs = 400;
+	static constexpr float kFarConeDistance = 5000.0f;
+	static constexpr float kFarConeDot = 0.93f;
+	static constexpr float kNearConeDistance = 110.0f;
+	static constexpr float kNearConeDot = 0.90f;
+
 	struct DamageSlot {
 		int entIndex = 0;
 		int damage = 0;
@@ -57,6 +72,11 @@ private:
 	void ProcessSpecialHit(int entIndex, int damage, const Vector& origin, float headZ, bool fromProxy);
 	void PumpHealthChanges();
 	void ProcessHealthChange(int entIndex, int oldHealth, int newHealth);
+	// Port of SKT_Si_TrackHitFeedback's gate. Returns true when this hit is
+	// trustworthy enough to show feedback for. userId may be 0 for entities that
+	// have no user id (common infected / witch): the lock then keys on entIndex.
+	bool ConfirmHit(int entIndex, int userId, int damage, bool gunHit);
+	bool IsInViewConeAtRange(int entIndex, float maxDistance, float minDot) const;
 	bool IsLocalHitCorrelated(int entIndex) const;
 	bool IsWitchEntity(int entIndex) const;
 	bool IsSpecialEntity(int entIndex) const;
@@ -76,6 +96,11 @@ private:
 	int m_lastSpecialHitEntity = 0;
 	int m_lastSpecialHitDamage = 0;
 	bool m_lastSpecialHitFromProxy = false;
+	// Hit-confirmation state (see ConfirmHit).
+	std::uint32_t m_lastFeedbackTick = 0;
+	int m_lockUserId = 0;
+	int m_lockEntity = 0;
+	std::uint32_t m_lockUntil = 0;
 	struct PendingHealthChange {
 		int entIndex = 0;
 		int oldHealth = 0;
