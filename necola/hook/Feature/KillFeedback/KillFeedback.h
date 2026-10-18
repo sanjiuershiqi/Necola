@@ -19,14 +19,33 @@ public:
 // Faithful port of skeeto's kill feedback:
 //  - Themes loaded from skeeto/skeeto_<id>.json (mounted via skeeto_killfeed.vpk)
 //  - Style selection with priority override (hit / streak_N / melee / headshot / kill)
-//  - Render_ScreenOverlay: overlay plus screen/world particle dispatch, with a
-//    pump that clears `r_screenoverlay` when the duration elapses
-//  - Sound_PlayVol: `playvol <file> <volume>` client command
+//  - Render_ScreenOverlay: overlay OR overlay_sequence (multi-frame material
+//    animation) plus screen/world particle dispatch, with a pump that steps the
+//    sequence every overlay_step_ms and clears `r_screenoverlay` when it ends
+//  - Sound_PlayVol: VGUI PlaySound / engine ambient sound (skeeto uses
+//    `playvol`; this port deliberately avoids touching the sound-script cache)
 //  - Commands unlocked once via Cmd_Unlock (clear FCVAR_CHEAT, add
-//    FCVAR_CLIENTCMD_CAN_EXECUTE) exactly like skeeto's Cmd_PlaySound.
+//    FCVAR_CLIENTCMD_CAN_EXECUTE) exactly like skeeto's Cmd_PlaySound
+//
+// Field layout and limits below mirror what we recovered from skeeto.dll's
+// 4444-byte hit-feedback event block (docs 25/33/34 of the Skeeto RE):
+//   overlay[96] | overlay_sequence[30][96] | count | overlay_step_ms (<=1000)
+//   particle[64] | particles[8][64] | sound[96] | sounds[8][96]
+//   priority | overlay_ms (<=5000) | has_content | world
+// skeeto also AUTO-EXTENDS overlay_ms when it is shorter than
+// frames*overlay_step_ms, so the last frame is never cut off.
 struct KillStyle {
+	static constexpr int kMaxOverlayFrames = 30;   // overlay_sequence[30]
+	static constexpr int kMaxOverlayStepMs = 1000; // overlay_step_ms clamp
+	static constexpr int kMinOverlayStepMs = 16;   // documented minimum
+	static constexpr int kMaxOverlayMs = 5000;     // overlay_ms clamp
+	static constexpr int kMaxParticles = 8;        // particles[8]
+	static constexpr int kMaxSounds = 8;           // sounds[8]
+
 	bool enabled = false;
 	std::string overlay;
+	std::vector<std::string> overlaySequence; // overlay_sequence[] (<= kMaxOverlayFrames)
+	int overlayStepMs = 0;                    // overlay_step_ms (16..1000)
 	std::string particle;
 	std::vector<std::string> particles;
 	std::string sound;
@@ -34,6 +53,11 @@ struct KillStyle {
 	int duration = 0;
 	int priority = 0;
 	bool world = false;
+
+	// True when there is enough material to animate a multi-frame overlay.
+	bool HasOverlaySequence() const {
+		return overlaySequence.size() >= 2 && overlayStepMs > 0;
+	}
 };
 
 struct KillTheme {
@@ -115,6 +139,7 @@ private:
 		int streak, KillStyle& out) const;
 	void RenderScreenOverlay(const KillStyle& style, int defaultDuration, bool allowRepeat);
 	void PumpOverlay();
+	void SendScreenOverlay(const char* material);
 	void PlaySoundVol(const KillStyle& style);
 	void PrecacheParticles(const KillStyle& style);
 	void SpawnParticles(const KillStyle& style);
@@ -133,6 +158,13 @@ private:
 	std::uint32_t m_fxOverlayTick = 0;
 	std::uint32_t m_fxPumpTick = 0;
 	bool m_overlayActive = false;
+	// Active overlay sequence state (skeeto overlay_sequence + overlay_step_ms).
+	// When the style has no sequence these stay empty/zero and the single-shot
+	// `overlay` path is used exactly as before.
+	std::vector<std::string> m_activeOverlaySequence;
+	std::size_t m_overlayFrame = 0;
+	std::uint32_t m_overlayNextFrameTick = 0;
+	int m_overlayStepMs = 0;
 	bool m_commandsUnlocked = false;
 	bool m_themesLoaded = false;
 	float m_lastThemeLoadAttempt = -1000.0f;
@@ -164,6 +196,9 @@ private:
 	std::unordered_map<int, PendingSpecialKill> m_pendingSpecialKills;
 	std::unordered_map<int, SpecialVictim> m_specialVictims;
 	std::unordered_set<std::string> m_precachedParticles;
+	// Particle dispatch rate limit (skeeto: at most 32 dispatches per 1000 ms).
+	std::uint32_t m_particleWindowStart = 0;
+	int m_particleWindowCount = 0;
 	FeedbackPosition m_feedbackPosition;
 	FeedbackPosition m_lastImpactPosition;
 	FeedbackPosition m_pendingImpactPosition;

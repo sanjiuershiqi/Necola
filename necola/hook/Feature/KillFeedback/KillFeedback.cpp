@@ -21,6 +21,12 @@ constexpr float SPECIAL_EVENT_GRACE = 0.15f;
 constexpr int OVERLAY_THROTTLE_MS = 70;
 constexpr int KILL_DURATION_MS = 240;
 constexpr int HIT_DURATION_MS = 110;
+// skeeto rate-limits particle dispatch: SKT_Particle_Dispatch drops a request
+// once 32 dispatches have happened inside one 1000 ms window (it keeps the
+// window start and a counter, and bails when the counter reaches 32). Mirror
+// that here so a multi-kill cannot flood the particle system.
+constexpr int PARTICLE_WINDOW_MS = 1000;
+constexpr int PARTICLE_MAX_PER_WINDOW = 32;
 constexpr uint32_t HITARM_WINDOW_MS = 400;
 constexpr unsigned int COMMON_HIT_TRACE_MASK = 1174421507u;
 int g_killEventDiagCount = 0;
@@ -161,10 +167,30 @@ void KillFeedback::LoadThemes() {
 			return it != section.end() && it->is_string() ? it->get<std::string>() : std::string();
 		};
 		style.overlay = readStr("overlay");
+
+		// overlay_sequence: skeeto's multi-frame material animation. The event
+		// block stores overlay_sequence[30][96], so cap at 30 entries; the
+		// player walks one frame per overlay_step_ms (16..1000 ms).
+		const auto sequence = section.find("overlay_sequence");
+		if (sequence != section.end() && sequence->is_array()) {
+			for (const auto& value : *sequence) {
+				if (static_cast<int>(style.overlaySequence.size()) >= KillStyle::kMaxOverlayFrames) break;
+				if (value.is_string() && !value.get<std::string>().empty()) {
+					style.overlaySequence.push_back(value.get<std::string>());
+				}
+			}
+		}
+		const auto stepMs = section.find("overlay_step_ms");
+		if (stepMs != section.end() && stepMs->is_number_integer()) {
+			style.overlayStepMs = std::clamp(stepMs->get<int>(),
+				KillStyle::kMinOverlayStepMs, KillStyle::kMaxOverlayStepMs);
+		}
+
 		style.particle = readStr("particle");
 		const auto particles = section.find("particles");
 		if (particles != section.end() && particles->is_array()) {
 			for (const auto& value : *particles) {
+				if (static_cast<int>(style.particles.size()) >= KillStyle::kMaxParticles) break;
 				if (value.is_string() && !value.get<std::string>().empty()) {
 					style.particles.push_back(value.get<std::string>());
 				}
@@ -174,6 +200,7 @@ void KillFeedback::LoadThemes() {
 		const auto sounds = section.find("sounds");
 		if (sounds != section.end() && sounds->is_array()) {
 			for (const auto& value : *sounds) {
+				if (static_cast<int>(style.sounds.size()) >= KillStyle::kMaxSounds) break;
 				if (value.is_string() && !value.get<std::string>().empty()) {
 					style.sounds.push_back(value.get<std::string>());
 				}
@@ -185,14 +212,15 @@ void KillFeedback::LoadThemes() {
 		for (const char* key : {"overlay_ms", "duration", "overlay_duration"}) {
 			const auto duration = section.find(key);
 			if (duration != section.end() && duration->is_number_integer()) {
-				style.duration = std::clamp(duration->get<int>(), 0, 5000);
+				style.duration = std::clamp(duration->get<int>(), 0, KillStyle::kMaxOverlayMs);
 				break;
 			}
 		}
 		const auto world = section.find("world");
 		style.world = world != section.end() && world->is_boolean() && world->get<bool>();
-		style.enabled = !style.overlay.empty() || !style.particle.empty() ||
-			!style.particles.empty() || !style.sound.empty() || !style.sounds.empty();
+		style.enabled = !style.overlay.empty() || !style.overlaySequence.empty() ||
+			!style.particle.empty() || !style.particles.empty() ||
+			!style.sound.empty() || !style.sounds.empty();
 	};
 	for (const char* id : ids) {
 		char path[128] = {};
@@ -381,14 +409,34 @@ void KillFeedback::SpawnParticles(const KillStyle& style) {
 	Vector origin;
 	if (style.world && m_feedbackPosition.valid) origin = m_feedbackPosition.value;
 	Vector angles;
+
+	// skeeto's dispatch window: at most PARTICLE_MAX_PER_WINDOW dispatches per
+	// PARTICLE_WINDOW_MS. Requests beyond that are dropped, exactly like
+	// SKT_Particle_Dispatch bailing out when its counter reaches 32.
+	const std::uint32_t nowMs = GetTickCount();
+	if (m_particleWindowStart == 0 ||
+		nowMs - m_particleWindowStart >= static_cast<std::uint32_t>(PARTICLE_WINDOW_MS)) {
+		m_particleWindowStart = nowMs;
+		m_particleWindowCount = 0;
+	}
+	bool dropped = false;
 	auto one = [&](const std::string& name) {
 		if (name.empty()) return;
+		if (m_particleWindowCount >= PARTICLE_MAX_PER_WINDOW) {
+			dropped = true;
+			return;
+		}
+		++m_particleWindowCount;
 		dispatch(name.c_str(), &origin, &angles, 2, 0, 0);
 		KFLog("particle spawned %s world=%d at %.0f %.0f %.0f", name.c_str(), style.world,
 			origin.x, origin.y, origin.z);
 	};
 	one(style.particle);
 	for (const auto& name : style.particles) one(name);
+	if (dropped) {
+		KFLog("particle dispatch dropped: %d/%d already spent in the %d ms window",
+			m_particleWindowCount, PARTICLE_MAX_PER_WINDOW, PARTICLE_WINDOW_MS);
+	}
 }
 
 void KillFeedback::CaptureFeedbackPosition(IGameEvent* event, int entityIndex) {
@@ -441,6 +489,13 @@ void KillFeedback::PumpCommonHitTrace() {
 	ResolveCombinedFeedback(false, false, false, 0, false, true);
 }
 
+void KillFeedback::SendScreenOverlay(const char* material) {
+	if (!I::EngineClient || !material || !*material) return;
+	char command[192] = {};
+	_snprintf_s(command, sizeof(command), _TRUNCATE, "r_screenoverlay %s", material);
+	I::EngineClient->ClientCmd(command);
+}
+
 void KillFeedback::RenderScreenOverlay(const KillStyle& style, int defaultDuration,
 	bool allowRepeat) {
 	if (!style.enabled) return;
@@ -453,22 +508,62 @@ void KillFeedback::RenderScreenOverlay(const KillStyle& style, int defaultDurati
 	PlaySoundVol(style);
 
 	if (G::Vars.killFeedbackIcon) SpawnParticles(style);
-	if (!G::Vars.killFeedbackIcon || style.overlay.empty()) return;
+	if (!G::Vars.killFeedbackIcon) return;
+
+	const bool useSequence = style.HasOverlaySequence();
+	if (!useSequence && style.overlay.empty()) return;
 	if (!I::EngineClient) return;
+
 	int duration = style.duration > 0 ? style.duration : defaultDuration;
-	duration = std::clamp(duration, 40, 5000);
-	char command[192] = {};
-	_snprintf_s(command, sizeof(command), _TRUNCATE, "r_screenoverlay %s", style.overlay.c_str());
-	I::EngineClient->ClientCmd(command);
+	duration = std::clamp(duration, 40, KillStyle::kMaxOverlayMs);
+
+	if (useSequence) {
+		// Multi-frame overlay: skeeto walks overlay_sequence[] one entry per
+		// overlay_step_ms and only issues r_screenoverlay when the frame index
+		// actually changes. overlay_ms is auto-extended so the last frame is not
+		// cut off (the author's rule).
+		const std::size_t frames = std::min<std::size_t>(
+			style.overlaySequence.size(), static_cast<std::size_t>(KillStyle::kMaxOverlayFrames));
+		const int step = std::clamp(style.overlayStepMs,
+			KillStyle::kMinOverlayStepMs, KillStyle::kMaxOverlayStepMs);
+		const int sequenceDuration = static_cast<int>(frames) * step;
+		duration = std::max(duration, sequenceDuration);
+
+		m_activeOverlaySequence.assign(style.overlaySequence.begin(),
+			style.overlaySequence.begin() + static_cast<std::ptrdiff_t>(frames));
+		m_overlayFrame = 0;
+		m_overlayStepMs = step;
+		SendScreenOverlay(m_activeOverlaySequence[0].c_str());
+		m_overlayNextFrameTick = now + static_cast<std::uint32_t>(step);
+		KFLog("overlay sequence frames=%u step=%d duration=%d first=%s",
+			static_cast<unsigned>(frames), step, duration, m_activeOverlaySequence[0].c_str());
+	} else {
+		m_activeOverlaySequence.clear();
+		m_overlayFrame = 0;
+		m_overlayStepMs = 0;
+		SendScreenOverlay(style.overlay.c_str());
+		KFLog("overlay %s duration=%d", style.overlay.c_str(), duration);
+	}
+
 	m_fxPumpTick = now + static_cast<std::uint32_t>(duration);
 	m_overlayActive = true;
-	KFLog("overlay %s duration=%d", style.overlay.c_str(), duration);
 }
 
 void KillFeedback::PumpOverlay() {
 	if (!m_overlayActive) return;
-	if (GetTickCount() < m_fxPumpTick) return;
+	const std::uint32_t now = GetTickCount();
+
+	// Advance the sequence one frame per overlay_step_ms while frames remain.
+	if (m_overlayFrame + 1 < m_activeOverlaySequence.size() && now >= m_overlayNextFrameTick) {
+		++m_overlayFrame;
+		SendScreenOverlay(m_activeOverlaySequence[m_overlayFrame].c_str());
+		m_overlayNextFrameTick = now + static_cast<std::uint32_t>(m_overlayStepMs);
+	}
+
+	if (now < m_fxPumpTick) return;
 	m_overlayActive = false;
+	m_activeOverlaySequence.clear();
+	m_overlayFrame = 0;
 	if (I::EngineClient) I::EngineClient->ClientCmd("r_screenoverlay \"\"");
 	KFLog("overlay cleared");
 }
@@ -1036,6 +1131,11 @@ void KillFeedback::Stop() {
 		m_overlayActive = false;
 		if (I::EngineClient) I::EngineClient->ClientCmd("r_screenoverlay \"\"");
 	}
+	// Drop any in-flight overlay sequence so a later trigger starts at frame 0.
+	m_activeOverlaySequence.clear();
+	m_overlayFrame = 0;
+	m_overlayStepMs = 0;
+	m_overlayNextFrameTick = 0;
 }
 
 void KillFeedback::Reset() {
