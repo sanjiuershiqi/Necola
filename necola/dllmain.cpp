@@ -21,6 +21,7 @@
 #include "l4n_plugin.h"
 #include "sdk/L4NEnv.h"
 #include "hook/Entry.h"
+#include "hook/Feature/L4NMenu/L4NMenu.h"
 #include "vars.h"
 #include "diag.h"
 
@@ -235,16 +236,15 @@ public:
     const char* GetName() override { return "Necola-ADS"; }
     const char* GetVersion() override { return sFixVer.c_str(); }
 
-    // v2 HUD-menu contribution point. Returning nullptr tells L4N "this plugin
-    // has no entry in the platform HUD menu" — deliberate: Necola draws its own
-    // VGUI menu (hook/Feature/MenuManager) and must not appear twice. If the
-    // menu is ever migrated to the KeyValues/Callback contract described in
-    // l4n_plugin.h, return the title here and the KeyValues tree for
-    // request_title == false (keeping the "_refresh" semantics in mind).
+    // v2 HUD-menu contribution point (see necola/l4n_plugin.h). L4N shows an
+    // entry titled by Title() and asks for the KeyValues tree when the user
+    // opens it; item callbacks rebuild the tree with "_refresh" so toggles
+    // update in place. The bridge lives in hook/Feature/L4NMenu and covers the
+    // non-ADS settings — the in-game VGUI menu (necola_menu) stays available
+    // for the ADS pages and as a fallback.
     const char* RequestHudMenu(bool request_title) override {
-        if (!request_title) return nullptr;
-        DbgLog("RequestHudMenu(title) -> nullptr (plugin uses its own VGUI menu)");
-        return nullptr;
+        DbgLog(request_title ? "RequestHudMenu(title)" : "RequestHudMenu(tree)");
+        return request_title ? L4NMenu::Title() : L4NMenu::Root();
     }
 
     static std::atomic_bool s_initStarted;
