@@ -182,8 +182,8 @@ PageUp/PageDown 翻页，`0`、Enter、Esc、Backspace 返回。标题显示两�
 
 ### 3.5 外部击杀反馈素材
 
-击杀反馈素材不进入 DLL，也不提交到仓库。运行时素材来自外部 addon 包 `skeeto_killfeed.vpk`
-（`Necola_analysis/addons/`），安装到 `<L4D2>/left4dead2/addons/` 自动挂载；插件引用其中的
+击杀反馈素材不进入 DLL，也不提交到仓库。运行时素材来自**外部 addon 包** `skeeto_killfeed.vpk`
+（素材不随仓库分发，需自行取得），安装到 `<L4D2>/left4dead2/addons/` 自动挂载；插件引用其中的
 `materials/skeeto/ci|si/...` 图标和 `sound/skeeto/...` 音效。不需要旧 CF 目录或
 `addons/sourcemod/plugins/hitsound_v2.smx`。
 

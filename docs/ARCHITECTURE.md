@@ -212,12 +212,16 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 选择 `streak_N`，普通感染者不参与。主题从外部 addon
 `skeeto_killfeed.vpk` 的 `skeeto/skeeto_*.json` 加载，候选内部按
 `hit -> streak/kill -> melee -> headshot` 和 priority 覆盖；SI/CI 候选再按 `si_dedicated` 选视觉、
-按 `si_sound` 选标量音效。渲染忠实使用 skeeto 的 `r_screenoverlay` 命令、70ms 节流和到期泵
-（kill 240ms、hit 110ms、主题可覆盖 duration）；`particle`/`particles[]` 通过已验证的
-`PrecacheParticleSystem` 与 `DispatchParticleEffect` pattern 预热和派发，`world=true` 使用事件目标坐标，
-坐标缺失时回退实体原点或本地 `bullet_impact`。音效通过解锁后的 `playvol` 输出。
-`r_screenoverlay/play/playvol` 一次性清除 `FCVAR_CHEAT` 并添加
-`FCVAR_CLIENTCMD_CAN_EXECUTE`。
+按 `si_sound` 选标量音效。渲染使用 skeeto 的 `r_screenoverlay` 命令、70ms 节流和到期泵
+（kill 240ms、hit 110ms、主题可覆盖 duration）；**同时支持 `overlay_sequence[]` +
+`overlay_step_ms` 的多帧材质动画**：按 step（16–1000ms）逐帧推进、上限 30 帧，
+`overlay_ms` 短于 `帧数×step` 时自动延长（与 skeeto 规则一致）。
+`particle`/`particles[]` 通过已验证的 `PrecacheParticleSystem` 与 `DispatchParticleEffect` pattern
+预热和派发（各上限 8 条），`world=true` 使用事件目标坐标，坐标缺失时回退实体原点或本地
+`bullet_impact`。
+音效**不走 `playvol`**：优先 `IMatSystemSurface::PlaySound`，显式音量时用
+`IEngineSound::EmitAmbientSound`，均不可用才回退控制台命令；只有 `r_screenoverlay` 会被
+一次性清除 `FCVAR_CHEAT` 并添加 `FCVAR_CLIENTCMD_CAN_EXECUTE`（见 `UnlockCommands()`）。
 
 主动检视是独立的 `InspectInitiative` 模块，不通过击杀反馈音频链路播放声音。它保留原生
 `ACT_VM_FIDGET` 路径，并按武器类型回退到 item-pickup/helping-hand layer；这些 layer 由武器模型

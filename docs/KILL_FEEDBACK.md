@@ -2,8 +2,8 @@
 
 ## 安装
 
-击杀反馈使用 skeeto 的 overlay、屏幕/世界粒子与音效，全部来自外部 addon 包 `skeeto_killfeed.vpk`
-（位于 `Necola_analysis/addons/`）：
+击杀反馈使用 skeeto 的 overlay、屏幕/世界粒子与音效，全部来自**外部 addon 包** `skeeto_killfeed.vpk`
+（素材不随本仓库分发、也不进入 DLL；请自行取得后按下述步骤安装）：
 
 1. 把 `skeeto_killfeed.vpk` 复制到 `<L4D2>/left4dead2/addons/`，游戏会自动挂载。
 2. 将 `necola_ads.dll` 放入 `<L4D2>/bin/neko/plugins/`。
@@ -63,11 +63,19 @@ SI 连杀计数；特感 streak 是滚动计数并按主题 `wrap` 循环，切�
   `infected_hurt` 仅作为本地补充。
 - 图标使用 skeeto 原版 `r_screenoverlay` 路径：击杀默认显示 240ms，命中默认 110ms，主题 JSON
   可通过 `overlay_ms` 覆盖；不同命中 overlay 之间有 70ms 节流，到期执行 `r_screenoverlay ""`。
+- **多帧序列**：主题 JSON 的 `overlay_sequence[]` + `overlay_step_ms` 已支持（这是 skeeto 的
+  材质动画写法）。按 `overlay_step_ms`（钳到 16–1000ms）逐帧推进，最多 30 帧；若 `overlay_ms`
+  短于 `帧数 × step`，会**自动延长**到足够播完最后一帧（与 skeeto 的规则一致）。只有单帧
+  `overlay` 而没有序列的主题，行为与以前完全相同。
+- 样式字段按 skeeto 事件块的上限截断：序列 **30** 帧、`particles[]` **8** 条、`sounds[]` **8** 条、
+  `overlay_ms` **≤5000ms**。超出部分静默丢弃，不会让整份主题失效。
 - `particle`/`particles[]` 使用 skeeto 原版 `DispatchParticleEffect` 通道；CF、Valorant 的击杀/连杀
   是屏幕粒子，落雷、爱心、星星和 Advanced 主题按 `world=true` 在目标位置生成。粒子在实际触发时
   按需预热，不在地图载入期间批量扫描或预热 VPK。
-- 初始化时按 skeeto 的 `Cmd_PlaySound` 逻辑一次性解锁 `r_screenoverlay`、`play`、`playvol`：清除
-  `FCVAR_CHEAT` 并添加 `FCVAR_CLIENTCMD_CAN_EXECUTE`，因此远程服务器也能本地显示和播放。
+- 命令解锁：只对 `r_screenoverlay` 清 `FCVAR_CHEAT` 并加 `FCVAR_CLIENTCMD_CAN_EXECUTE`（与
+  `UnlockCommands()` 一致）。**音效不走 `play`/`playvol`**：优先 `IMatSystemSurface::PlaySound`
+  （本地 UI 采样，不碰 sound-script 缓存），显式音量时走 `IEngineSound::EmitAmbientSound`，
+  两者都不可用才回退到控制台命令。
 
 素材缺失时不会影响 ADS、菜单或战役计时器；可通过“测试效果”逐项检查 `skeeto_killfeed.vpk`
 是否安装完整。
