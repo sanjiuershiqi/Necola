@@ -199,6 +199,50 @@ __declspec(noinline) int ScanThemeIds(char ids[kMaxScannedThemes][kMaxThemeIdLen
 	return count;
 }
 
+// Probes whether the engine's particle manager actually knows a system.
+//
+// Why this exists: overlay materials and sounds resolve through the VFS, so any
+// addon works for them — but a .pcf only becomes usable once the engine has
+// processed a particles/*.txt manifest that references it. skeeto solves that
+// with its 'particle platform' (a detour of the engine's manifest parser).
+// Before wiring anything that invasive we need a runtime answer to "does the
+// engine already see this system?". U::Offsets.m_dwCParticleSystemMgr and
+// m_dwCParticleSystemMgrFindParticleSystem are both recovered by pattern scan
+// and neither is used elsewhere in this codebase, so their exact shape
+// (pointer-to-pointer for the manager, thiscall for FindParticleSystem) is
+// assumed, not proven.
+//
+// Returns 1 = engine knows the system, 0 = unknown, -1 = probe unavailable.
+// Once the probe faults it disables itself permanently, so a build whose
+// patterns or calling convention differ costs at most one exception.
+__declspec(noinline) int ProbeParticleSystem(const char* name) {
+	static int state = 0; // 0 = untried, 1 = usable, -1 = disabled
+	if (state < 0 || !name || !name[0]) return -1;
+	if (!U::Offsets.m_dwCParticleSystemMgr || !U::Offsets.m_dwCParticleSystemMgrFindParticleSystem) {
+		state = -1;
+		return -1;
+	}
+	using FindFn = void* (__thiscall*)(void*, const char*);
+	int found = 0;
+	__try {
+		void* manager = *reinterpret_cast<void**>(U::Offsets.m_dwCParticleSystemMgr);
+		if (manager) {
+			MEMORY_BASIC_INFORMATION info = {};
+			const void* fn = reinterpret_cast<const void*>(U::Offsets.m_dwCParticleSystemMgrFindParticleSystem);
+			if (VirtualQuery(fn, &info, sizeof(info)) && (info.Protect & 0xF0) != 0) {
+				const FindFn find =
+					reinterpret_cast<FindFn>(U::Offsets.m_dwCParticleSystemMgrFindParticleSystem);
+				found = find(manager, name) != nullptr ? 1 : 0;
+				state = 1;
+			}
+		}
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		state = -1;
+		found = -1;
+	}
+	return found;
+}
+
 } // namespace
 
 void KillFeedback::LoadThemes() {
@@ -499,8 +543,12 @@ void KillFeedback::PrecacheParticles(const KillStyle& style) {
 				dispatch(name.c_str(), &hidden, &angles, 2, 0, 0);
 			}
 		}
-		KFLog("particle precached %s (index=%d warmup=%d)", name.c_str(), index,
-			U::Offsets.m_dwDispatchParticleEffect3 ? 1 : 0);
+		// engine=-1 means the probe is unavailable in this build; 0 means the
+		// particle manager does not know the system yet (its pcf/manifest is not
+		// loaded — the case that makes content "require a specific pack").
+		const int engineKnows = ProbeParticleSystem(name.c_str());
+		KFLog("particle precached %s (index=%d warmup=%d engine=%d)", name.c_str(), index,
+			U::Offsets.m_dwDispatchParticleEffect3 ? 1 : 0, engineKnows);
 	};
 	one(style.particle);
 	for (const auto& name : style.particles) one(name);
