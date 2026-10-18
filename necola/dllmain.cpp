@@ -225,12 +225,27 @@ void Undo_necola()
 // L4N callback and self-gate on Source module readiness inside the thread.
 class NecolaL4NPlugin : public IL4NPlugin {
 public:
+    // SDK contract as of the L4N release vendored in ../l4n_plugin.h:
+    // IL4NPluginV1::GetInterfaceVersion() reports 2, and IL4NPlugin adds
+    // RequestHudMenu(). Advertise the same value instead of the old 1.
     unsigned int GetInterfaceVersion() override {
-        DbgLog("GetInterfaceVersion() called -> 1");
-        return 1;
+        DbgLog("GetInterfaceVersion() called -> 2");
+        return 2;
     }
     const char* GetName() override { return "Necola-ADS"; }
     const char* GetVersion() override { return sFixVer.c_str(); }
+
+    // v2 HUD-menu contribution point. Returning nullptr tells L4N "this plugin
+    // has no entry in the platform HUD menu" — deliberate: Necola draws its own
+    // VGUI menu (hook/Feature/MenuManager) and must not appear twice. If the
+    // menu is ever migrated to the KeyValues/Callback contract described in
+    // l4n_plugin.h, return the title here and the KeyValues tree for
+    // request_title == false (keeping the "_refresh" semantics in mind).
+    const char* RequestHudMenu(bool request_title) override {
+        if (!request_title) return nullptr;
+        DbgLog("RequestHudMenu(title) -> nullptr (plugin uses its own VGUI menu)");
+        return nullptr;
+    }
 
     static std::atomic_bool s_initStarted;
 
