@@ -59,32 +59,6 @@ const HitColor kPalette[10] = {
 };
 int g_hitEventDiagCount = 0;
 
-std::vector<std::pair<RecvProp*, RecvVarProxyFn>> g_healthProxies;
-
-RecvProp* FindRecvPropRecursive(RecvTable* table, const char* name, int depth = 0) {
-	if (!table || !name || depth > 16) return nullptr;
-	for (int i = 0; i < table->m_nProps; ++i) {
-		RecvProp* prop = &table->m_pProps[i];
-		if (prop->m_pVarName && std::strcmp(prop->m_pVarName, name) == 0) return prop;
-		if (RecvProp* nested = FindRecvPropRecursive(prop->GetDataTable(), name, depth + 1)) return nested;
-	}
-	return nullptr;
-}
-
-void HealthProxy(const CRecvProxyData* data, void* structure, void* output) {
-	int oldHealth = output ? *static_cast<int*>(output) : 0;
-	RecvVarProxyFn original = nullptr;
-	for (const auto& [prop, proxy] : g_healthProxies) {
-		if (data && data->m_pRecvProp == prop) {
-			original = proxy;
-			break;
-		}
-	}
-	if (!original && !g_healthProxies.empty()) original = g_healthProxies.front().second;
-	if (original) original(data, structure, output);
-	else if (output && data) *static_cast<int*>(output) = data->m_Value.m_Int;
-	if (data) F::HitFeedbackMgr.OnHealthChanged(data->m_ObjectID, oldHealth, data->m_Value.m_Int);
-}
 }
 
 bool HitFeedback::IsWitchEntity(int entIndex) const {
@@ -106,39 +80,6 @@ bool HitFeedback::IsSpecialEntity(int entIndex) const {
 
 void HitFeedback::TriggerHitMarker() {
 	m_hitMarkerUntil = NowTick() + kHitMarkerDurationMs;
-}
-
-bool HitFeedback::InstallHealthProxy() {
-	if (m_healthProxyInstalled) return true;
-	if (!I::BaseClient) return false;
-	for (ClientClass* clientClass = I::BaseClient->GetAllClasses(); clientClass;
-		clientClass = clientClass->m_pNext) {
-		if (!clientClass->m_pNetworkName ||
-			(std::strcmp(clientClass->m_pNetworkName, "CBasePlayer") != 0 &&
-			 std::strcmp(clientClass->m_pNetworkName, "CTerrorPlayer") != 0)) continue;
-		RecvProp* prop = FindRecvPropRecursive(clientClass->m_pRecvTable, "m_iHealth");
-		if (!prop || !prop->GetProxyFn() || prop->GetProxyFn() == HealthProxy) continue;
-		bool duplicate = false;
-		for (const auto& installed : g_healthProxies) {
-			if (installed.first == prop) {
-				duplicate = true;
-				break;
-			}
-		}
-		if (duplicate) continue;
-		g_healthProxies.emplace_back(prop, prop->GetProxyFn());
-		prop->SetProxyFn(HealthProxy);
-	}
-	m_healthProxyInstalled = !g_healthProxies.empty();
-	return m_healthProxyInstalled;
-}
-
-void HitFeedback::UnhookHealthProxy() {
-	for (const auto& [prop, original] : g_healthProxies) {
-		if (prop && prop->GetProxyFn() == HealthProxy) prop->SetProxyFn(original);
-	}
-	g_healthProxies.clear();
-	m_healthProxyInstalled = false;
 }
 
 // Cone test shared by the hit-confirmation gate. skeeto aims 40 units above the
@@ -172,84 +113,6 @@ bool HitFeedback::IsInViewConeAtRange(int entIndex, float maxDistance, float min
 //   near cone -> accept & lock the victim for 400 ms.
 // A repeat on the locked victim skips the throttle and both cone tests, which is
 // what lets a burst or a shotgun pellet spread register more than once.
-bool HitFeedback::ConfirmHit(int entIndex, int userId, int damage, bool gunHit) {
-	if (damage <= 0) return false;
-	if (entIndex <= 0 || !I::ClientEntityList) return false;
-	if (!I::ClientEntityList->GetClientEntity(entIndex)) return false;
-	if (userId < 0 || userId > 64) return false; // 0 = entity without a user id
-	if (gunHit && !IsInViewConeAtRange(entIndex, kFarConeDistance, kFarConeDot)) return false;
-
-	const std::uint32_t now = NowTick();
-	const bool locked = m_lockEntity == entIndex && m_lockUserId == userId && m_lockUntil != 0 &&
-		static_cast<std::int32_t>(m_lockUntil - now) >= 0;
-	if (!locked) {
-		if (now - m_lastFeedbackTick < kHitFeedbackThrottleMs) return false;
-		// The near cone is only required for NON-gun hits — skeeto's condition is
-		// "a7 == 0 && !InViewCone(110, 0.90)". Gun hits already passed the far
-		// cone above, and re-testing them up close would eat shotgun pellets.
-		if (!gunHit && !IsInViewConeAtRange(entIndex, kNearConeDistance, kNearConeDot)) return false;
-		m_lockUserId = userId;
-		m_lockEntity = entIndex;
-		m_lockUntil = now + kVictimLockMs;
-	}
-	m_lastFeedbackTick = now;
-	return true;
-}
-
-bool HitFeedback::IsLocalHitCorrelated(int entIndex) const {
-	return IsInViewConeAtRange(entIndex, kFarConeDistance, kFarConeDot);
-}
-
-void HitFeedback::ProcessSpecialHit(int entIndex, int damage, const Vector& origin, float headZ,
-	bool fromProxy) {
-	if (entIndex <= 0 || damage <= 0) return;
-	const std::uint32_t now = NowTick();
-	if (entIndex == m_lastSpecialHitEntity && damage == m_lastSpecialHitDamage &&
-		fromProxy != m_lastSpecialHitFromProxy && now - m_lastSpecialHitTick <= 60) return;
-	m_lastSpecialHitEntity = entIndex;
-	m_lastSpecialHitDamage = damage;
-	m_lastSpecialHitFromProxy = fromProxy;
-	m_lastSpecialHitTick = now;
-	if (G::Vars.hitFeedbackEnabled) {
-		if (G::Vars.hitFeedbackNumbers) {
-			RecordDamage(entIndex, damage, origin.x, origin.y, origin.z, headZ);
-		}
-		if (G::Vars.hitFeedbackHitMarker) TriggerHitMarker();
-	}
-	F::KillFeedbackMgr.OnSpecialHealthDrop(origin);
-}
-
-void HitFeedback::OnHealthChanged(int entIndex, int oldHealth, int newHealth) {
-	if (oldHealth <= 0 || newHealth >= oldHealth || oldHealth > 100000 || newHealth < 0 ||
-		newHealth > 100000) return;
-	if (!G::Vars.hitFeedbackEnabled && G::Vars.killFeedbackHitMode == 0) return;
-	if (entIndex <= 0 || entIndex > 64) return;
-	if (m_pendingHealthChangeCount >= kMaxPendingHealthChanges) return;
-	m_pendingHealthChanges[m_pendingHealthChangeCount++] = {entIndex, oldHealth, newHealth};
-}
-
-void HitFeedback::ProcessHealthChange(int entIndex, int oldHealth, int newHealth) {
-	// Proxy path: no game event, so no user id, and not necessarily a gun shot.
-	if (!I::ClientEntityList) return;
-	auto* entity = I::ClientEntityList->GetClientEntity(entIndex);
-	auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
-	if (!player) return;
-	const int damage = oldHealth - newHealth;
-	if (!ConfirmHit(entIndex, 0, damage, /*gunHit=*/false)) return;
-	const Vector origin = player->m_vecOrigin();
-	float headZ = player->m_vecViewOffset().z;
-	if (headZ < 20.0f || headZ > 120.0f) headZ = 50.0f;
-	ProcessSpecialHit(entIndex, damage, origin, headZ + 2.0f, true);
-}
-
-void HitFeedback::PumpHealthChanges() {
-	const int count = m_pendingHealthChangeCount;
-	m_pendingHealthChangeCount = 0;
-	for (int i = 0; i < count; ++i) {
-		const PendingHealthChange change = m_pendingHealthChanges[i];
-		ProcessHealthChange(change.entIndex, change.oldHealth, change.newHealth);
-	}
-}
 
 void HitFeedback::ArmLocalAttack() {
 	m_lastAttackTick = NowTick();
@@ -370,56 +233,122 @@ void HitFeedback::OnGameEvent(IGameEvent* event) {
 		if (IsLocalAttacker(event, "userid")) m_lastAttackTick = NowTick();
 		return;
 	}
-	if (!G::Vars.hitFeedbackEnabled && G::Vars.killFeedbackHitMode == 0) return;
-
-	if (!I::EngineClient || !I::ClientEntityList) return;
+	// ---- ingress only ----
+	// skeeto's producer (SKT_Stats_QueueDamageEvent) decides nothing either: it
+	// stamps a record and lets the per-frame consumer validate it. Keeping the
+	// decision here is what made this module drift and regress.
+	PendingHit pending;
+	pending.tick = NowTick();
+	pending.mapGen = m_mapGeneration;
+	pending.gun = true;
 
 	if (std::strcmp(name, "player_hurt") == 0) {
 		if (!IsLocalAttacker(event, "attacker")) return;
-		const int victimEnt = I::EngineClient->GetPlayerForUserID(event->GetInt("userid", 0));
+		if (!I::EngineClient || !I::ClientEntityList) return;
+		const int victimUserId = event->GetInt("userid", 0);
+		const int victimEnt = I::EngineClient->GetPlayerForUserID(victimUserId);
 		if (victimEnt <= 0) return;
 		auto* entity = I::ClientEntityList->GetClientEntity(victimEnt);
 		auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
 		if (!player) return;
-		const Vector& origin = player->m_vecOrigin();
-		float headZ = 50.0f;
+		const Vector origin = player->m_vecOrigin();
 		const Vector view = player->m_vecViewOffset();
-		if (view.z > 20.0f && view.z < 120.0f) headZ = view.z + 2.0f;
-		const bool special = IsSpecialEntity(victimEnt);
-		if (special && ConfirmHit(victimEnt, event->GetInt("userid", 0),
-				event->GetInt("dmg_health", 0), /*gunHit=*/true)) {
-			ProcessSpecialHit(victimEnt, event->GetInt("dmg_health", 0), origin, headZ, false);
-		}
+		pending.entIndex = victimEnt;
+		pending.userId = victimUserId;
+		pending.damage = event->GetInt("dmg_health", 0);
+		pending.x = origin.x;
+		pending.y = origin.y;
+		pending.z = origin.z;
+		pending.headZ = (view.z > 20.0f && view.z < 120.0f) ? view.z + 2.0f : 50.0f;
+		EnqueueHit(pending);
 		return;
 	}
-
 	if (std::strcmp(name, "infected_hurt") == 0) {
 		if (!IsLocalAttacker(event, "attacker")) return;
+		if (!I::ClientEntityList) return;
 		const int entIndex = event->GetInt("entityid", 0);
+		if (entIndex <= 0) return;
 		auto* entity = I::ClientEntityList->GetClientEntity(entIndex);
 		if (!entity) return;
-		const Vector& origin = entity->GetAbsOrigin();
-		const bool witch = IsWitchEntity(entIndex);
-		const int damage = event->GetInt("amount", 0);
-		// Common infected and witches have no user id, so the victim lock keys on
-		// the entity index. Same Skeeto gate as the special path: far cone, 70 ms
-		// throttle, near cone, then a 400 ms victim lock that lets repeats through.
-		const bool confirmed = ConfirmHit(entIndex, 0, damage, /*gunHit=*/true);
-		if (!confirmed) return;
-		if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackNumbers &&
-			(witch || G::Vars.hitFeedbackCommon)) {
-			RecordDamage(entIndex, damage, origin.x, origin.y, origin.z, 50.0f);
-		}
-		// The crosshair marker means "my shot connected" and, like skeeto's, does
-		// not depend on the damage-number options.
-		if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackHitMarker) {
-			TriggerHitMarker();
-		}
+		const Vector origin = entity->GetAbsOrigin();
+		pending.entIndex = entIndex;
+		pending.userId = 0;
+		pending.damage = event->GetInt("amount", 0);
+		pending.x = origin.x;
+		pending.y = origin.y;
+		pending.z = origin.z;
+		pending.headZ = 50.0f;
+		EnqueueHit(pending);
+		return;
 	}
 }
 
+// Producer side of the rewrite: stamp and queue, decide nothing.
+void HitFeedback::EnqueueHit(const PendingHit& hit) {
+	if (hit.damage <= 0 || hit.entIndex <= 0) return;
+	if (!G::Vars.hitFeedbackEnabled) return;
+	if (m_pendingCount >= kMaxPendingHits) {
+		for (int i = 1; i < m_pendingCount; ++i) m_pending[i - 1] = m_pending[i];
+		--m_pendingCount;
+	}
+	m_pending[m_pendingCount++] = hit;
+}
+
+// Gate from SKT_Si_TrackHitFeedback, same order: far cone (gun only, 5000/0.93)
+// -> 70 ms throttle -> near cone (non-gun, 110/0.90) -> lock the victim 400 ms.
+// Repeats on the locked victim skip the throttle and both cone tests.
+bool HitFeedback::GateHit(const PendingHit& hit) {
+	if (hit.damage <= 0 || hit.entIndex <= 0) return false;
+	if (!I::ClientEntityList) return false;
+	if (!I::ClientEntityList->GetClientEntity(hit.entIndex)) return false;
+	if (hit.userId < 0 || hit.userId > 64) return false;
+	if (hit.gun && !IsInViewConeAtRange(hit.entIndex, kFarConeDistance, kFarConeDot)) return false;
+
+	const std::uint32_t now = NowTick();
+	const bool locked = m_lockEntity == hit.entIndex && m_lockUserId == hit.userId &&
+		m_lockUntil != 0 && static_cast<std::int32_t>(m_lockUntil - now) >= 0;
+	if (!locked) {
+		if (now - m_lastFeedbackTick < kHitFeedbackThrottleMs) return false;
+		if (!hit.gun && !IsInViewConeAtRange(hit.entIndex, kNearConeDistance, kNearConeDot)) return false;
+		m_lockUserId = hit.userId;
+		m_lockEntity = hit.entIndex;
+		m_lockUntil = now + kVictimLockMs;
+	}
+	m_lastFeedbackTick = now;
+	return true;
+}
+
+// Consumer side: validate then dispatch, mirroring SKT_Stats_ConsumePendingDamage.
+void HitFeedback::DrainPendingHits() {
+	if (m_pendingCount <= 0) return;
+	const std::uint32_t now = NowTick();
+	const int count = m_pendingCount < kMaxDrainPerFrame ? m_pendingCount : kMaxDrainPerFrame;
+	for (int i = 0; i < count; ++i) {
+		const PendingHit hit = m_pending[i];
+		if (hit.mapGen != m_mapGeneration) continue;
+		if (now - hit.tick > kPendingLifetimeMs) continue;
+		if (hit.userId > 0) {
+			const int resolved = I::EngineClient ? I::EngineClient->GetPlayerForUserID(hit.userId) : 0;
+			if (resolved != hit.entIndex) continue;
+		}
+		if (!GateHit(hit)) continue;
+		if (G::Vars.hitFeedbackNumbers) {
+			RecordDamage(hit.entIndex, hit.damage, hit.x, hit.y, hit.z, hit.headZ);
+		}
+		if (G::Vars.hitFeedbackHitMarker) TriggerHitMarker();
+		// Themed hit overlay stays in KillFeedback and keeps its own HitMode gate.
+		F::KillFeedbackMgr.OnSpecialHealthDrop(Vector(hit.x, hit.y, hit.z));
+	}
+	if (count >= m_pendingCount) {
+		m_pendingCount = 0;
+		return;
+	}
+	for (int i = count; i < m_pendingCount; ++i) m_pending[i - count] = m_pending[i];
+	m_pendingCount -= count;
+}
+
 void HitFeedback::Pump() {
-	PumpHealthChanges();
+	DrainPendingHits();
 }
 
 void HitFeedback::Draw() {
@@ -531,11 +460,13 @@ void HitFeedback::Reset() {
 	m_hitMarkerUntil = 0;
 	m_lastAttackTick = 0;
 	m_lastImpactTick = 0;
-	m_lastSpecialHitTick = 0;
-	m_lastSpecialHitEntity = 0;
-	m_lastSpecialHitDamage = 0;
-	m_lastSpecialHitFromProxy = false;
-	m_pendingHealthChangeCount = 0;
+	// A new round must not inherit the previous generation's queue or victim lock.
+	++m_mapGeneration;
+	m_pendingCount = 0;
+	m_lastFeedbackTick = 0;
+	m_lockUserId = 0;
+	m_lockEntity = 0;
+	m_lockUntil = 0;
 	// Drop the hit-confirmation lock/throttle: a new round must not inherit the
 	// previous victim's 400 ms lock.
 	m_lastFeedbackTick = 0;
@@ -545,7 +476,6 @@ void HitFeedback::Reset() {
 }
 
 void HitFeedback::Shutdown() {
-	UnhookHealthProxy();
 	if (m_listenersRegistered && I::GameEventManager) {
 		I::GameEventManager->RemoveListener(&m_listener);
 		m_listenersRegistered = false;

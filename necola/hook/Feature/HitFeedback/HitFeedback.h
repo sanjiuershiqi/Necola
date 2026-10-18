@@ -11,27 +11,38 @@ public:
 	int GetEventDebugID() override { return 42; }
 };
 
-// Ported from the skeeto overlay analysis (Render_HitMarkers / Timer_Draw):
-// 20 damage slots with 90ms same-entity accumulation, 860ms fade-out,
-// upward-drifting damage numbers with a shadow pass and a 10-color palette,
-// plus a short crosshair hit marker for special-infected / witch hits.
+// Damage numbers + crosshair hit marker.
+//
+// The detection core is a rewrite of skeeto's damage pipeline
+// (SKT_Stats_QueueDamageEvent -> SKT_Stats_ConsumePendingDamage ->
+// SKT_Si_TrackHitFeedback). The old implementation tried to decide inline, in the
+// event callback, with a half-installed health proxy and special-cases per victim
+// type; that is what kept regressing. This version follows skeeto's split:
+//
+//   ingress (event)   -> append a 400 ms-stamped record, nothing else
+//   drain   (per frame) -> drop stale / wrong-generation / wrong-entity records
+//   gate                -> far cone (gun) -> 70 ms throttle -> near cone (non-gun)
+//                          -> victim lock 400 ms (repeats inside it bypass the gate)
+//   dispatch            -> RecordDamage() (number) + TriggerHitMarker()
+//
+// Rendering (20 slots, 90 ms merge, 860 ms fade, palette, marker) is unchanged.
 class HitFeedback {
 public:
 	bool InitListeners();
-	bool InstallHealthProxy();
-	void UnhookHealthProxy();
-	bool HasHealthProxy() const { return m_healthProxyInstalled; }
 	void LoadConfig(const nlohmann::json& doc);
 	void SaveConfig(nlohmann::json& doc) const;
 	void SaveConfig() const;
 
 	void OnGameEvent(IGameEvent* event);
-	void OnHealthChanged(int entIndex, int oldHealth, int newHealth);
 	void ArmLocalAttack();
 	void Pump();
 	void Draw();
 	void Reset();
 	void Shutdown();
+
+	// Kept for the status line; the health proxy is intentionally not installed
+	// (it would fight other plugins over the m_iHealth RecvProp chain).
+	bool HasHealthProxy() const { return false; }
 
 private:
 	static constexpr int kMaxSlots = 20;
@@ -40,14 +51,13 @@ private:
 	static constexpr std::uint32_t kHitMarkerDurationMs = 300;
 	static constexpr int kPaletteSize = 10;
 
-	// ---- hit-confirmation constants, taken from SKT_Si_TrackHitFeedback ----
-	// Gate applied before a hit may raise the crosshair marker / damage number:
-	//   1. valid player id (1..64), live entity
-	//   2. gun hits must be inside a far view cone: 5000 units, dot >= 0.93
-	//   3. global throttle: 70 ms since the last accepted hit
-	//   4. otherwise a near cone: 110 units, dot >= 0.90
-	//   5. accepted hits lock that victim for 400 ms, and repeats inside the lock
-	//      skip steps 3+4 entirely (this is what makes burst fire register).
+	// ---- queue (skeeto: 64 records, drained 32 per frame) ----
+	static constexpr int kMaxPendingHits = 64;
+	static constexpr int kMaxDrainPerFrame = 32;
+	// skeeto rejects a record that is older than 400 ms when it is drained.
+	static constexpr std::uint32_t kPendingLifetimeMs = 400;
+
+	// ---- gate (SKT_Si_TrackHitFeedback) ----
 	static constexpr std::uint32_t kHitFeedbackThrottleMs = 70;
 	static constexpr std::uint32_t kVictimLockMs = 400;
 	static constexpr float kFarConeDistance = 5000.0f;
@@ -68,18 +78,28 @@ private:
 		bool used = false;
 	};
 
-	void RecordDamage(int entIndex, int damage, float x, float y, float z, float headZ);
-	void ProcessSpecialHit(int entIndex, int damage, const Vector& origin, float headZ, bool fromProxy);
-	void PumpHealthChanges();
-	void ProcessHealthChange(int entIndex, int oldHealth, int newHealth);
-	// Port of SKT_Si_TrackHitFeedback's gate. Returns true when this hit is
-	// trustworthy enough to show feedback for. userId may be 0 for entities that
-	// have no user id (common infected / witch): the lock then keys on entIndex.
-	bool ConfirmHit(int entIndex, int userId, int damage, bool gunHit);
+	struct PendingHit {
+		std::uint32_t tick = 0;
+		std::uint32_t mapGen = 0;
+		int entIndex = 0;   // victim entity index
+		int userId = 0;     // victim user id (0 when the entity has none)
+		int damage = 0;
+		float x = 0.0f;
+		float y = 0.0f;
+		float z = 0.0f;
+		float headZ = 50.0f;
+		bool gun = true;    // gun hit: far cone only; otherwise near cone
+		bool used = false;
+	};
+
+	void EnqueueHit(const PendingHit& hit);
+	void DrainPendingHits();
+	bool GateHit(const PendingHit& hit);
 	bool IsInViewConeAtRange(int entIndex, float maxDistance, float minDot) const;
-	bool IsLocalHitCorrelated(int entIndex) const;
 	bool IsWitchEntity(int entIndex) const;
 	bool IsSpecialEntity(int entIndex) const;
+	bool IsSpecialEntity(int entIndex) const;
+	void RecordDamage(int entIndex, int damage, float x, float y, float z, float headZ);
 	void TriggerHitMarker();
 
 	DamageSlot m_slots[kMaxSlots];
@@ -89,26 +109,22 @@ private:
 	int m_damageFontSize = 0;
 	HitFeedbackListener m_listener;
 	bool m_listenersRegistered = false;
-	bool m_healthProxyInstalled = false;
 	std::uint32_t m_lastAttackTick = 0;
 	std::uint32_t m_lastImpactTick = 0;
-	std::uint32_t m_lastSpecialHitTick = 0;
-	int m_lastSpecialHitEntity = 0;
-	int m_lastSpecialHitDamage = 0;
-	bool m_lastSpecialHitFromProxy = false;
-	// Hit-confirmation state (see ConfirmHit).
+
+	// queue + generation
+	PendingHit m_pending[kMaxPendingHits];
+	int m_pendingCount = 0;
+	std::uint32_t m_mapGeneration = 1;
+
+	// gate state
 	std::uint32_t m_lastFeedbackTick = 0;
 	int m_lockUserId = 0;
 	int m_lockEntity = 0;
 	std::uint32_t m_lockUntil = 0;
-	struct PendingHealthChange {
-		int entIndex = 0;
-		int oldHealth = 0;
-		int newHealth = 0;
-	};
-	static constexpr int kMaxPendingHealthChanges = 32;
-	PendingHealthChange m_pendingHealthChanges[kMaxPendingHealthChanges];
-	int m_pendingHealthChangeCount = 0;
+
+	// diagnostics
+	int m_logBudget = 20;
 };
 
 namespace F { inline HitFeedback HitFeedbackMgr; }
