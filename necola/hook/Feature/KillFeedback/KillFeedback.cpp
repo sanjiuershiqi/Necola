@@ -144,6 +144,63 @@ bool KillFeedback::UnlockCommands(bool needOverlay) {
 	return true;
 }
 
+namespace {
+
+constexpr int kMaxScannedThemes = 64;
+constexpr int kMaxThemeIdLen = 64;
+
+// Enumerates skeeto/skeeto_*.json across every search path (loose files first,
+// then each mounted VPK) — the way skeeto itself discovers its themes, instead
+// of trusting a fixed id list. This is what lets a third-party addon drop its
+// own skeeto_<id>.json into a VPK and have it show up here.
+//
+// Deliberately contains no object that needs unwinding, because MSVC rejects
+// __try in such a frame (C2712) — and the __try is what keeps a wrong
+// IFileSystem slot from taking the process down: those Find* virtuals are only
+// declared by the vendored SDK header, so an engine build that lays the vtable
+// out differently must degrade to the built-in list instead of crashing.
+__declspec(noinline) int ScanThemeIds(char ids[kMaxScannedThemes][kMaxThemeIdLen]) {
+	FileFindHandle_t handle = -1;
+	int count = 0;
+	__try {
+		const char* found = I::FileSystem->FindFirst("skeeto/skeeto_*.json", &handle);
+		while (found && found[0] && count < kMaxScannedThemes) {
+			const char* base = found;
+			for (const char* cursor = found; *cursor; ++cursor) {
+				if (*cursor == '/' || *cursor == '\\') base = cursor + 1;
+			}
+			static constexpr char kPrefix[] = "skeeto_";
+			static constexpr char kSuffix[] = ".json";
+			const int prefixLen = static_cast<int>(sizeof(kPrefix) - 1);
+			const int suffixLen = static_cast<int>(sizeof(kSuffix) - 1);
+			int length = 0;
+			while (base[length]) ++length;
+			if (length > prefixLen + suffixLen) {
+				bool match = true;
+				for (int i = 0; i < prefixLen && match; ++i) {
+					if (base[i] != kPrefix[i]) match = false;
+				}
+				for (int i = 0; i < suffixLen && match; ++i) {
+					if (base[length - suffixLen + i] != kSuffix[i]) match = false;
+				}
+				const int idLen = length - prefixLen - suffixLen;
+				if (match && idLen > 0 && idLen < kMaxThemeIdLen) {
+					for (int i = 0; i < idLen; ++i) ids[count][i] = base[prefixLen + i];
+					ids[count][idLen] = '\0';
+					++count;
+				}
+			}
+			found = I::FileSystem->FindNext(handle);
+		}
+		if (handle != -1) I::FileSystem->FindClose(handle);
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		count = -1;
+	}
+	return count;
+}
+
+} // namespace
+
 void KillFeedback::LoadThemes() {
 	if (m_themesLoaded) return;
 	if (!I::FileSystem) {
@@ -154,12 +211,27 @@ void KillFeedback::LoadThemes() {
 	if (now - m_lastThemeLoadAttempt < 2.0f) return;
 	m_lastThemeLoadAttempt = now;
 	m_themes.clear();
-	const char* const ids[] = {
-		"si_cf", "si_valorant", "si_lightning", "si_love", "si_star",
-		"si_bf1_advanced", "si_bf2042_advanced", "si_deltaforce_advanced",
-		"ci_cf", "ci_apex", "ci_bf1", "ci_bf2042", "ci_bf5",
-		"ci_cod", "ci_deltaforce", "ci_l4d2", "ci_ow",
-	};
+	// Discover themes the way skeeto does: enumerate skeeto/skeeto_*.json over
+	// the search paths (loose + mounted VPKs). The old hardcoded list is kept
+	// only as a fallback for builds where the scan is unavailable.
+	std::vector<std::string> ids;
+	{
+		char scanned[kMaxScannedThemes][kMaxThemeIdLen] = {};
+		const int scannedCount = ScanThemeIds(scanned);
+		if (scannedCount > 0) {
+			ids.reserve(static_cast<std::size_t>(scannedCount));
+			for (int i = 0; i < scannedCount; ++i) ids.emplace_back(scanned[i]);
+			KFLog("theme scan found %d candidate(s) on the file system", scannedCount);
+		} else {
+			KFLog("theme scan unavailable (result=%d); using the built-in id list", scannedCount);
+			ids = {
+				"si_cf", "si_valorant", "si_lightning", "si_love", "si_star",
+				"si_bf1_advanced", "si_bf2042_advanced", "si_deltaforce_advanced",
+				"ci_cf", "ci_apex", "ci_bf1", "ci_bf2042", "ci_bf5",
+				"ci_cod", "ci_deltaforce", "ci_l4d2", "ci_ow",
+			};
+		}
+	}
 	auto loadStyle = [](const nlohmann::json& section, KillStyle& style) {
 		if (!section.is_object()) return;
 		auto readStr = [&](const char* key) {
@@ -222,9 +294,9 @@ void KillFeedback::LoadThemes() {
 			!style.particle.empty() || !style.particles.empty() ||
 			!style.sound.empty() || !style.sounds.empty();
 	};
-	for (const char* id : ids) {
+	for (const std::string& id : ids) {
 		char path[128] = {};
-		_snprintf_s(path, sizeof(path), _TRUNCATE, "skeeto/skeeto_%s.json", id);
+		_snprintf_s(path, sizeof(path), _TRUNCATE, "skeeto/skeeto_%s.json", id.c_str());
 		if (!I::FileSystem->FileExists(path)) continue;
 		auto handle = I::FileSystem->Open(path, "rb");
 		if (!handle) continue;
@@ -275,10 +347,10 @@ void KillFeedback::LoadThemes() {
 			loadStyleFrom("streak_default", theme.streakDefault);
 
 			theme.loaded = true;
-			KFLog("theme %s loaded (%s, %s)", id, theme.channel.c_str(), theme.name.c_str());
+			KFLog("theme %s loaded (%s, %s)", id.c_str(), theme.channel.c_str(), theme.name.c_str());
 			m_themes.push_back(std::move(theme));
 		} catch (...) {
-			KFLog("theme %s parse failed", id);
+			KFLog("theme %s parse failed", id.c_str());
 		}
 	}
 	m_themesLoaded = !m_themes.empty();

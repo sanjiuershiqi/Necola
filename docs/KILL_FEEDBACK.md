@@ -5,6 +5,15 @@
 击杀反馈使用 skeeto 的 overlay、屏幕/世界粒子与音效，全部来自**外部 addon 包** `skeeto_killfeed.vpk`
 （素材不随本仓库分发、也不进入 DLL；请自行取得后按下述步骤安装）：
 
+> **主题发现方式已改成 skeeto 那种**：插件在运行期**通配枚举文件系统**
+> `skeeto/skeeto_*.json`（松散目录 + 所有已挂载的 VPK），而不是信任写死的 17 个主题 id。
+> ⇒ 任何 addon 只要把 `skeeto/skeeto_<id>.json` 打进 VPK，就会自动出现在主题列表里；
+> 与 skeeto 相同，**同一 id 后读入者覆盖先读入者**（松散先扫、VPK 后扫），所以旧包里
+> 的同 id 主题会盖掉你调试用的松散版本。
+> 枚举通过 `IFileSystem::FindFirst/FindNext/FindClose` 完成，并用 SEH 包裹：如果目标引擎
+> 这组虚表槽位与随附 SDK 头不一致，只会退回内置列表并写日志，不会崩进程。
+
+
 1. 把 `skeeto_killfeed.vpk` 复制到 `<L4D2>/left4dead2/addons/`，游戏会自动挂载。
 2. 将 `necola_ads.dll` 放入 `<L4D2>/bin/neko/plugins/`。
 3. 完全退出并重启游戏。

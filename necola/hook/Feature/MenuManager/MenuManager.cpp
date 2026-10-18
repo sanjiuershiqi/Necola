@@ -1,6 +1,5 @@
 #include "MenuManager.h"
 #include "../../Vars.h"
-#include "../InspectInitiative/InspectInitiative.h"
 
 
 void InGameMenu::EngineDrawFilledRect(const int x1, const int y1, const int x2, const int y2, const Color& color) {
@@ -72,8 +71,6 @@ void InGameMenu::InitConfigSwitches() {
 		auto adsMenu = FindMenuById("ads");
 	if (adsMenu) {
 		adsMenu->setSwitchStateByName("启用ADS", G::Vars.enableAdsSupport);
-		adsMenu->setSwitchStateByName("主动检视", G::Vars.openInspect);
-		adsMenu->setSwitchStateByName("检视忽略弹药限制", G::Vars.inspectIgnoreAmmo);
 
 			auto crosshairModeLabel = [](int mode) -> std::string {
 				switch (mode) {

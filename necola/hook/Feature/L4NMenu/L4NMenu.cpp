@@ -38,8 +38,6 @@ ToggleDesc g_toggles[] = {
 	{ "特殊感染者反馈", &G::Vars.killFeedbackSpecial },
 	{ "伤害数字", &G::Vars.hitFeedbackEnabled },
 	{ "准星命中标记", &G::Vars.hitFeedbackHitMarker },
-	{ "主动检视", &G::Vars.openInspect },
-	{ "检视忽略弹药限制", &G::Vars.inspectIgnoreAmmo },
 };
 constexpr int kToggleCount = static_cast<int>(sizeof(g_toggles) / sizeof(g_toggles[0]));
 

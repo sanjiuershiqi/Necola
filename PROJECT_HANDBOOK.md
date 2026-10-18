@@ -61,7 +61,6 @@ necola/
 │   │   ├── SequenceModify/       # 序列修正（ADS依赖的底层）
 │   │   ├── MenuManager/          # 游戏内菜单UI
 │   │   ├── CampaignTimer/        # 战役计时 + cs2hud444 六位数字材质接管
-│   │   ├── InspectInitiative/    # 武器检视动画（ACT_VM_FIDGET + 武器层回退）
 │   │   ├── CommandManager/       # 控制台命令注册
 │   │   ├── InputManager/         # 输入管理
 │   │   └── BodygroupFix/         # Bodygroup修复
