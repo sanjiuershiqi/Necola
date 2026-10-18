@@ -1,7 +1,12 @@
+// 面向mod作者的PBR着色器文档
+
 // vmt基础：https://developer.valvesoftware.com/wiki/Creating_a_Material
-// 为了保证环境反射的效果，pbr着色器需要配合l4n与dxvk使用
-"PBR" //面向mod作者的PBR着色器文档
+
+// 大部分模型的材质，使用的是VertexLitGeneric着色器(简称VLG)
+// 材质代理可以动态调整材质参数，属于材质系统的功能，不需要着色器主动支持，所以Proxies的使用与VLG没有区别
+"PBR" // <- 这里指定使用PBR着色器
 {
+    // 为了保证环境反射的效果，建议配合l4n与dxvk使用
     // https://docs.momentum-mod.org/shaders/physically_based_rendering/
     // https://developer.valvesoftware.com/wiki/Creating_PBR_materials
 

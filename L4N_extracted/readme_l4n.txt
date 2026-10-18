@@ -1,112 +1,137 @@
-﻿l4n是一个客户端补丁，给L4D2带来了大量改进
-l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等，目前没有修复方案
-目前只保证游戏版本2.2.4.3的兼容性，系统win10+，不符合该要求的环境可能会出现问题
+﻿本文档会随版本更新，部分功能会添加进hud菜单里方便使用
 
-遇到问题请尝试查阅下方的问题指南
-确定问题前，请多次测试求平均，控制变量保证客观
-如果发现是和l4n有关的问题，请及时反馈
-如果是不明确或无关的问题将不予理睬
+[2.52.1]
+修改：l4n_bonesetup_patch能够接管实体的hitbox计算，防止超128骨骼的溢出问题
 
-本文件会随版本更新，收录了所有功能的说明，部分功能会添加进l4n菜单里方便使用
-当前版本需要将l4n_patch_team_player_display设置为1才能显示l4nsurvivor头像
-
-[2.43.0]
-修改：l4n菜单里新增了NekoShaders的设置，新增的"统一lightwarp"功能可用于解决不同mod作者间光照标准不统一的问题
-新增：convar mat_nekotoon_normalized_lightwarp
-修改：将mat_outline_thickness_scale设置为可保存
-修复：l4n_view_punch_scale的失效问题
-修复：服务器浏览器本地化文本加载失败导致的l4n本地化功能失效
-
-[2.42.1]
-修复：l4nsurvivor随机分配算法在实体随机数生成前就已经生效的问题
-
-[2.42.0]
-修复：l4nsurvivor随机分配算法在玩家进入闲置时的卡顿问题
-修改：转换NekoToon菜单新增了描边选项
-新增：convar l4n_to_nekotoon_outline_type
-移除：convar l4n_survivor_model_use_nekotoon
-移除：convar l4n_to_nekotoon_allow_outline
+[2.52.0] - 2026-10-14
+新增：convar l4n_bonesetup_force_threaded
+新增：convar l4n_bonesetup_patch
+新增：convar l4n_vpkoverlay
+修改：修复自定义命令菜单的重复加载问题
+新增：concmd l4n_show_addon_load_order
+修改：优化更新失败后的收尾
 
 
-[2.41.1] 2026-08-12
-修复：l4n_view_punch_scale为零时，客户端预测导致的视角抖动
-修改：优先使用cl_language来确定l4ngui的显示语言
+======== 接管骨骼变换计算(实验性) ========
+    convar l4n_bonesetup_patch 设置为1时生效
+    启用后，以下骨骼相关功能由l4n来计算：
+        骨骼动画，骨骼动画混合
+        Jiggle飘骨，Procedural程序骨
+        根据VPhysics的物理模拟结果来计算最终布娃娃效果
+        BoneMerge实体间骨骼变换复制
+        IK逆向动力学
+        Attachment变换的更新
+        实体模型缩放
 
-[2.41.0]
-新增：convar l4n_screen_shake_scale
-新增：convar l4n_view_punch_scale
-新增：convar l4n_hudmenu_offset_x, l4n_hudmenu_offset_y
-修复：survivor_vpk_gen生成的addoninfo全是"(bill)"后缀的问题
+    目前用于评估自定义实现与原生效果的差异，为待办清单的一些计划功能做好铺垫
+    该实现能够正常处理256骨骼的mdl模型
 
-[2.40.2]
-移除：replace_memory_allocator配置项，目前该功能不能替换dxvk的内存分配，容易与dxvk冲突
+    注意：
+        目前只接管了客户端的逻辑，如果服务端读取了超过128骨骼的mdl来计算动画，会遇到内存溢出导致的奇怪问题
+        对于目前想尝试256骨骼上限的用户，请连接到其它服务器，或者使用类似l4n_surrivor这种仅替换客户端实体模型的功能
+        其它的未适配256骨骼的情况：
+            实体粒子消散效果
+            客户端处理布娃娃数据的逻辑
+            模型批渲染
 
-[2.40.1]
-修改：l4n_game_usage新增了mimalloc的current commit
-修复：+l4n_lookat触发的动画有概率丢失event的问题
-修复：+l4n_lookat播放动画期间，触发原生伸手动画时的视角卡顿
-
-[2.40.0]
-修改：移除存在缺陷的l4n_survivor_model_nodecal，此版本提供了更好更细致的方案来禁用贴花，可以在l4n菜单的实体选项里访问
-新增：convar l4n_decal_allow_staticprop
-新增：convar l4n_decal_allow_entity
-新增：convar l4n_decal_allow_special_infected
-新增：convar l4n_decal_allow_survivor
-新增：convar l4n_decal_allow_common_infected
-修复：launch_options里值的空格转义问题
-
-[2.39.0]
-新增：可选的咪内存分配器(mimalloc)，通过config.vdf配置来开启，能减少内存碎片
-修复：+score无法显示自定义头像
-修复：上个版本带来的+l4n_lookat触发问题
+    128不是mdl格式的上限，L4D2的起源引擎分支只支持最大128骨骼的mdl模型
+    上限硬编码在相关函数的栈缓冲区里，这样做有利于cpu矩阵运算加速，如SIMD指令集加速等
+    还能提高cpu缓存命中率，缺点是固定的内存大小，不能动态分配
+    是的，cpu在面对复杂场景时，需要在一帧内计算上千根骨骼的矩阵变换，既l4n_bonesetup_patch所涵盖的计算
 
 
-[2.38.0] 2026-08-03
-新增：convar l4n_allow_entity_dissolve
-新增：convar l4n_scripted_hud_allow
-新增：15个前缀为"l4n_scripted_hud_allow_slot"的convar
-修复：+l4n_lookat在手枪上的状态问题
-修复：+l4n_lookat在没有extern动画的模型上不能触发loop的问题
-修复：+l4n_lookat进入loop动画的衔接问题
-修改：优化l4nsurvivor对bot的处理，减少触发模型加载的情况
+    从128骨骼上限升级到256意味着什么：
+        拥抱未来的生态，已经确定的一个非官方64版本L4D2，使用的是CSGO引擎分支，支持256骨骼
+        还有存疑中的官方64版本，在移植到64位的更新里，大概率会顺手将128的上限解除
+
+        对于幸存者模型：
+            为了保证人体动画的效果，保底需要占掉64根骨骼(腿，脊椎，30根手指关节，手臂，武器动画的弹匣拉栓骨骼等)
+            128上限的情况下，只剩下64根骨骼给头发飘带这些部位分配
+            对于飘动部位的数量提升最大，如一个角色模型有几十个蝴蝶结、丝带的情况，头发可以做到根根分明
+
+        对于武器模型：
+            手部骨骼需要保底占用，提高上限可以让更多的部位拥有动画效果，例如烘焙的部件散落效果
+
+        我可以使用密度更高的骨链吗：
+            可以，但是可能效果更差的同时还浪费性能，你可能需要注意以下：
+
+            前面提到了骨骼变换是由cpu计算的，如果是无意义的密度增加可能会增加cpu负担
+            如果要考虑优化，思路类似于模型顶点密度和贴图像素密度
+
+            起源引擎jiggle飘骨算法在过长的骨链上，迭代收敛变慢，效果拖沓，不过未来或许能通过改进算法来避免这个问题
+
+            模型每个顶点的权重上限为三个，骨链密度过高可能导致蒙皮效果变差，现代游戏引擎通常保底为4个
+            有一些mmd模型对骨骼数量的滥用特别严重，密度甚至比模型顶点密度还高，不过mmd属于离线渲染领域，这不是什么大问题
+            这里需要告诫一些不做优化，直接将高密度骨骼绑定移植到游戏的人
+
+     如何生成超128骨骼的mdl：
+        使用nekomdl的用户，在QC脚本里加入“$MaxBones 256”
+        使用其它引擎分支的studiomdl，如GMOD，CSGO，这些分支原生支持256骨骼
 
 
-安装/更新：
+======== 待办清单 ========
+    有一部分还处在可行性验证阶段
+    提供Jolt物理引擎替代起源VPhysics引擎的功能
+    基于l4n_bonesetup_patch：
+        使本地服务端能够妥善处理超128骨骼的mdl
+        修复原生Jiggle飘骨算法的一些鬼畜BUG
+        使网络同步的角色布娃娃能够应用pps(骨架比例修正动画/Proportiontrick)
+        l4n player_foot介入IK计算
+        提供更多程序骨算法
+        提供另一套更现代的飘动骨骼方案/算法，支持碰撞模拟，以及高可视化、高易用性的参数调整体验
+        扩展原生Jiggle飘骨的功能，如增加碰撞体支持
+        提供一套后处理绑定/或算法来修正因动画制作水平导致的第一人称手模变形
+        现已提供了：
+            l4n_prevent_varms_stretching，禁止动画修改手指比例
+            l4n_vm_dual_quaternion_skinning，手模使用对偶四元数蒙皮算法，或许能缓解手臂扭转失去过多体积的问题(目前仅支持NekoToon材质)
+
+
+更多历史更新日志在本文档末尾
+
+免责声明
+    本工具使用了内存补丁技术，使用时风险自负，启动项加"-insecure"可以避免进入启用vac的服务器
+    本工具的功能主要面向娱乐玩家与mod开发者，在禁用mod的服务器上会限制敏感功能，请勿用于影响他人游戏体验
+    本工具能够加载用户提供的三方模块，该功能用来避免各种三方模块的加载点冲突问题，三方模块提供的内容和本工具无关
+安装&更新：
     将安装包内所有的文件复制覆盖到游戏根目录即可
-    仅安装着色器则跳过复制exe文件
+    仅安装着色器则跳过复制left4dead.exe文件
 卸载：
     在游戏目录里搜索left4dead.exe和game_shader_generic_neko.dll删除即可，staem在启动游戏时会重新下载left4dead.exe
-    删除其它文件不是必须的，这些文件不会被游戏使用
-免责声明
-    和dxvk或reshade类似的免责声明，使用时风险自负
-    目前来看这并没有什么必要，如果有这方面的担忧，启动项加"-insecure"可以避免进入启用vac的服务器
-    建议配合娱乐或单人玩法使用，在禁用mod的服务器上会限制某些敏感功能，请勿用于影响平衡性的目的
+    其它文件不是必须删除的，这些文件不会被游戏使用
+
+
+l4n是一个客户端补丁，给L4D2带来了大量改进
+l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等，目前没有修复方案
+目前只保证游戏版本2.2.4.3的兼容性，系统win10+，不符合该要求的环境可能会有兼容性问题
+
 
 问题指南：
+    确定问题前，请多次测试求平均，控制变量保证客观
+    如果是和本工具有关的问题，欢迎对开发者进行反馈
+    如果是不明确或无关的问题将不予理睬
+
     本指南还收录了一些游戏本身或第三方的问题
-    游戏崩溃不一定和内存占用高有关，但是遇到崩溃时有必要先排查一下内存占用是否异常
+    游戏崩溃不一定和内存占用高有关，但是遇到崩溃时有必要先排查一下内存占用是否异常，尤其是在加载地图这种内存压力大的场景
 
     游戏目前还存在许多缺陷和bug，这些缺陷在进行非纯净游戏时会更容易暴漏出来(连接带插件装mod的服务器也不算纯净)
     Valve目前是不管这些bug的，除非是安全性bug
-    安全性bug对于游戏公司和用户来说，需要承担的风险很大，对于游戏的安全性更新请持理性态度
+    安全性bug对于游戏公司和用户来说，需要承担的风险很大，对于v社官方的安全性更新请持理性态度
     如果需要避免steam游戏更新带来的麻烦，请直接将游戏文件夹移动到别处来使用
 
-    l4n在游戏崩溃生成mdmp前添加了弹窗提醒
+    l4n在游戏崩溃生成mdmp前添加了弹窗提醒，该机制依赖于windows系统的调用
     请客观看待，这能便于了解崩溃时发生了什么
-    如果有显示代码，你可以通过观察代码来确定是否是同个问题
+    如果有显示代码，你可以通过观察代码的规律来确定是否是同个问题
 
-    如果对游戏进行了重度修改，如大量mod大量插件dxvk补丁等，会很容易遇到兼容性问题
-    你的硬件配置，mod，系统版本，驱动版本等这些影响游戏环境的因素和别人不一定完全相同，不适合套用到自己身上
+    如果对游戏进行了重度修改，如大量mod大量插件dxvk补丁等，很容易遇到兼容性问题
+    你的硬件配置，安装的mod，系统版本，驱动版本等影响游戏环境的因素和别人不一定完全相同，不适合套用到自己身上
     到处询问可能无果，不如学会基本的控制变量法自己去排查问题
     本指南可以给你一些排查问题的方向
 
     渲染相关，大部分涉及底层硬件，兼容性很容易出现问题
         a.尝试按照下方说明清除着色器缓存，有一个未知原因的bug会导致内存帧率异常
         b.切换显卡驱动的版本，如回退到25或24年的版本，用ddu卸载驱动断网重启安装(驱动需要提前下载好)
-            你猜为什么显卡驱动的更新日志写了一堆游戏名
             显卡驱动更新会带来Vulkan驱动的更新，涉及到这方面的dxvk或者ReShade可能会出现兼容性问题
         c.切换dxvk版本，优先尝试2.3版本
-            dxvk将d3d9调用转换成vulkan，这种api属于性能上限高的手动档
             dxvk每个版本的优化策略不完全相同，在不同配置或驱动版本下可能出现兼容性问题
         d.禁用ReShade
             确定你的ReShade安装方式，然后进入游戏根目录
@@ -116,7 +141,7 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
             字体替换只是它的一个小小功能，部分人使用该补丁来修改字体
             某些配置下会导致dxvk画面卡顿
         f.录屏工具、性能指示器、RTX Remix、小黄鸭等其它和画面渲染有关的修改
-            这些修改会在游戏渲染管线里插入自己的代码，可能会导致兼容性问题
+            这些修改会在游戏渲染管线里插入自己的功能，可能会出现兼容性问题
             你可以尝试禁用这些修改来排查问题
             如果使用了DXVK，禁用方法参考config_template.vdf里环境变量的示例参数
 
@@ -161,9 +186,10 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
 
     捡起武器后闪退：
         控制台会输出：Infinite origin/angles from vphysics!
-        一般出现在捡起某把武器，同槽位武器被替换掉落到地上的过程，这个过程会有物理引擎的计算
-        和掉落武器的模型有关，未知原因，闪退的点在服务端
-        考虑更换武器mod，或者让自己以非主机的形式游玩，如连接服务器，让好友来当主机，本地部署服务端等
+        触发根源在掉落中的武器模型，其物理效果触发了bug
+        崩溃点在服务端与vphysics.dll，自己以非主机的形式游玩，如连接服务器等不会遇到该问题
+        该bug貌似和w模的形状和体积有关(注意这里说的不是碰撞体模型)
+        貌似还有另一种因素会导致同样的闪退
 
     进图后突然退回到大厅：
         检查音频脚本的数量是否过多，通常在安装过多社区称为“音频库”的mod过多时发生
@@ -171,29 +197,30 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
 
     Too many xx for xx buffer引擎错误弹窗：
         这和单帧里突然出现的几何体数量有关，尤其是生成贴花时会复制网格(如果贴花目标表面的面数很大)
+        或者突然出现特别复杂的特效，一瞬间在画面里生成大量三角形，例如某些武器mod切换的粒子效果或者地图上的爆炸特效
         https://developer.valvesoftware.com/wiki/Too_many_indices_for_index_buffer
         可以通过修改l4n配置文件(convif.vdf)里的index_buffer_size或vertex_buffer_size来提高缓冲区大小
         修改会有屏幕炸面花屏的风险(此时本该弹窗)，引擎内部的逻辑不能妥善处理大于32768的缓冲区大小，目前的补丁只是为了防止触发错误弹窗
 
     L4D2是32位程序，实际只能使用3gb左右的内存，接近上限时游戏会越来越不稳定直到崩溃
     控制台命令l4n_game_usage 1可以监视内存占用(av项是游戏的可用内存大小，越低越危险，dc是datacache占用，ents是实体数量峰值)
-    注意：dxvk/dx9和引擎的其它模块、游戏客户端服务端实体、引擎datacache等是会挤占内存的
+    注意：dxvk/dx9和起源引擎的其它模块、游戏客户端服务端实体、引擎datacache等是会挤占内存的
 
     贴图占用大量内存：
-        引擎在提交贴图数据给dx9时，使用了默认的内存管理，此时dx9在上传贴图到gpu显存时会留一份副本在cpu内存上，这会导致内存占用特别高(贴图是mod里最占空间的资产)，要避免该问题请使用dxvk来代替原生dx9，dxvk对这种情况有特殊优化
+        引擎在提交贴图数据给dx9时，使用了默认的内存管理，此时dx9在上传贴图到gpu显存时会留一份副本在cpu内存上，这会导致内存占用特别高(贴图是mod里最占空间的资产)
+        要避免该问题请使用dxvk来代替原生dx9，dxvk对这种情况有特殊优化
         无法使用dxvk的情况下，可以进视频设置里将"模型/纹理细节"和"可用的页池内存"调为低，游戏将加载低分辨率的贴图来减少内存占用
 
 
     DXVK安装:
         首选：
-            将dxvk安装包内d3d9.dll复制到游戏主程序旁边
+            将dxvk安装包内d3d9.dll(32)复制到游戏主程序旁边
             确保没有-vulkan启动项
         次选：
             除非首选方法失败，否则不建议使用-vulkan启动项
             -vulkan启动项的DXVK dll位置在bin/dxvk_d3d9.dll，版本很老，可以手动替换成新版dxvk的dll
             steam可能会自动验证完整性导致dxvk_d3d9.dll被覆盖回去
         注意：
-            请不要将dxvk安装包里64位的dll给32位的程序用
             使用dxvk后，Reshade的安装要选择Vulkan
             如果dxvk不能正常使用，如全屏模式出现异常，无法识别独显等，尝试去修改dxvk的配置文件
             安装的mod里如果贴图占用很高，你的显存应该要大于4gb
@@ -204,12 +231,16 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
 
     着色器缓存：
         不同版本的l4n着色器功能会有差别，安装/更新/切换版本后可能会触发着色器缓存编译
-        切换显卡驱动版本或者dxvk版本时，包括第一次使用dxvk，可能触发着色器重编译(包括引擎自带的着色器)
+        显卡驱动版本变动或者dxvk版本变动时，着色器缓存可能命中失败，需要编译新的着色器缓存(包括引擎自带的着色器)
         着色器编译时可能出现掉帧，内存占用高的情况，如果很长一段时间后问题依旧，尝试按照以下指南清除着色器缓存
             控制台运行l4n_open_shader_cache_dir打开着色器缓存目录后关闭游戏
             如果是550文件夹，删除目录下的所有文件夹
             如果是AMD或NVIDIA文件夹，某些厂商的命名会有出路，删除所有Cache结尾的文件夹最稳妥
             打开失败或其它GPU核心厂商的情况下，请自行搜索方法
+        注意：
+            windows更新会自动更新驱动，所以你可能会遇到第二天醒来就“xxx”了这种情况
+            这里说的不是steam设置里的"着色器预缓存"
+            回退l4n版本后可能会发现问题不存在了，这是因为以前使用老版本时，着色器正常编译并成功缓存，换回老版本继续复用旧的缓存
 
     mod检查的注意事项：
         地图类mod可能会有模型、材质、cvar、脚本污染冲突的问题，这类mod带有战役标签，冲突检测会忽略这类mod
@@ -242,7 +273,7 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
                 查看文件夹运行：path
 
     材质透明效果：
-        第一种透明过渡效果最好，但是可能会出现排序问题导致前后关系错乱
+        第一种透明过渡效果最好，但是可能会出现深度缓冲问题导致前后关系错乱
         第二种只有完全透明和完全不透明两种状态，性能最好
         第三种依赖MSAA抗锯齿，质量与MSAA等级成正比
         MSAA透明的具体效果可能和硬件或图形接口有关，例如在某型号的gpu上，dx9会出现过渡断层，dxvk(2.7.1)则是过渡效果更好的抖动透明
@@ -272,14 +303,12 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
         //      [AnimBlock]是模型动画的缓存
         //      如果占用特别高(如200mb)的话，可能是装了跳舞相关的动画mod，已知此类mod最高能包含100个舞蹈左右，
         //      一个舞蹈大概1到2分钟，加起来内存占用非常的直观，建议在不需要时禁用此类mod
-        //      也可以通过禁用xdReanimsBase来达到让所有的动画mod失效的效果
         
         //      [Modelxxxx]是模型的缓存，大小主要和模型的面数有关
         //      用于存放当前地图要用到的模型，如幸存者、武器、车辆、盆栽、感染者等...
         //      进地图后在控制台运行"cache_print"输出内存占用最高的模型
         //      路径里带survivor或infected的是角色模型，一般排最前面（角色模型的体积大，精度要求会比较高）
         //      路径里带w_models或者v_models则是武器的第三人称或第一人称模型
-
         // 其它没提到的项目是无关紧要的
 
     "no free edicts"错误弹窗：
@@ -287,7 +316,7 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
         游戏中实体的数量达到2048会触发，目前没有有效的非官方措施对这个上限进行修补
         -num_edicts启动项是属于金源引擎的启动项，在起源上没有任何作用
         除非v社官方出手，第三方想解决该问题的工作量和难度很大，实体是客户端/服务端逻辑里最常见的对象，第三方需要要找出大量的点位进行修补，客户端和服务端都要一并修补，因为实体是需要在客户端和服务端之间进行网络同步的
-        某些地图开局占用能到1700左右，加上服务器插件或者vscript脚本一般会生成一些实体，这会增加遇到该问题的风险
+        某些地图开局占用能到1700左右，加上服务器插件或者vscript脚本一般会生成一些功能性实体，这会增加遇到该问题的风险
 
     地图曝光过暗：
         某些gpu硬件会遇到这样的问题，例如Intel的一些型号，通过修改video.txt可以解决
@@ -297,9 +326,18 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
         这种情况下控制台会有：CUtlLinkedList overflow! (exhausted index range)
         具体原因未知
 
-制作用于NekoSky的叠加纹理：https://rafradek.github.io/Mishcatt/
+    BindVertexTexture失效问题：
+        该问题会导致描边蒙版失效，从2.47.1版本的l4n起有专门的补丁修复
+        问题出现在引擎内部的CommitVertexTextures()里
+        函数内使用了(textreHandle>=0)来判断贴图有效性
+        由于handle(int类型)实际为内部对象的指针裸包装(bit_cast)，如果内部对象分配在高位内存区域，handle的值会变成负数
+        结果是顶点着色器无法正常采样贴图，渲染结果异常
+        在发现原因之前，通过改变安装的mod数量，进入不同的地图，有概率触发
+        启用mimalloc的情况下能够稳定复发，因为mimalloc喜欢从高位布局开始分配内存
+
+制作用于NekoSky的天空盒叠加纹理：https://rafradek.github.io/Mishcatt/
     背景需纯黑，建议使用RGB888的格式，DXT系列不适合带线条的插画
-    vtf文件放在游戏根目录的left4dead2/materials里，控制台设置贴图示例：mat_nekosky_overlay_lf "vtf文件名或留空"
+    vtf文件放在游戏根目录的left4dead2/materials里，控制台设置贴图示例：mat_nekosky_overlay_lf "vtf文件名或留空取消设置"
 
 ===========基本功能==========
     主菜单(l4n_menu)默认按"\"显示，"-"上一页 "+"下一页
@@ -315,9 +353,11 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
     RestrictAddons禁用的情况下，使sv_consistency 1的作用失效
     scheme_overrides
     sequence_event
+    exe导出用于AMD和NVIDIA显卡的全局变量，能够帮助DXVK识别到独显
     有关(convar/concmd/控制台命令)的详细说明在下方，ctrl+f以快速定位
 
 ======== ReShade Bridge ========
+    此功能的兼容性不是很高，不建议使用，已经停止维护
     ReShade Bridge能够将ReShade滤镜集成到L4D2的渲染管线里
     该功能需要Addon版的ReShade，如果ReShade插件管理里显示"只提供有限的插件功能"，则该ReShade版本是非Addon版
     ReShade插件管理里确保"L4N ReShade Bridge"已经启用，如果没有该项目，请检查ReShade.log
@@ -327,14 +367,15 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
     ReShade Bridge会自动锁定Generic Depth的设置，可在启动项添加"+l4n_reshade_depth_resolve 0"来禁用该特性
     在使用本功能的情况下，存在一些未知因素，可能会导致内存占用异常，请尝试使用config_template.vdf里的示例参数
 
-======== l4n_survivor ========
+======== l4n survivor ========
     此功能也可称为"l4ns"或"扩展幸存者模型"
     普通幸存者mod是通过替换八个幸存者的模型文件来实现的，只能在那八个文件里做文章
-    l4ns则是使用扩充的模型文件，主动修改玩家实体要使用的模型，效果取决于玩家数量或已安装适配mod的数量
+    l4ns则是使用扩充的模型文件，主动修改客户端玩家实体要使用的模型，效果取决于玩家数量或已安装适配mod的数量
     l4ns还支持(头像/倒地图标/Bot名字)的替换，当前版本需要将l4n_patch_team_player_display设置为1才能生效
     注意事项：
         此功能的使用与传统角色mod的使用是冲突的，避免混合使用以免造成不必要的困扰
-        模型是动态加载的，无用的角色模型会释放内存占用，新玩家加入时可能会卡顿
+        l4ns生效的情况下，普通幸存者角色mod没有机会正常使用，因游戏的底层机制，八个幸存者的模型会被强制加载，此时禁用普通幸存者角色mod可以节省内存占用
+        模型是动态加载的，无用的角色模型会释放内存占用，新玩家加入时分配新模型可能会卡顿
         以玩家实体为单位会遇到一些问题
             大部分非玩家实体在客户端看来是不知道和哪个玩家有关联的，例如tumtara测试图里展示角色模型的实体
             对于和玩家有视觉关联的非玩家实体，l4n对部分情况做了有限的猜测和适配，如：能被电击的幸存者死亡实体，第一人称腿插件生成的实体，倒地爬行插件生成的实体
@@ -344,14 +385,21 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
         推荐使用八人包，同时选中八人包里的替换八个幸存者角色的vpk，一同拖动到to_l4n_survivor.exe上即可开始转换
         没有条件的情况下，用替换某个幸存者角色的vpk也可以转换，此功能目前是实验性的
         材质vpk或其它依赖性vpk也可以一并拖进去合并
-        注意不要混合别的mod一起转换，比如拿a角色替换bill和b角色替换zoey(以此类推)的vpk一起
+        注意不要混合别的mod同时转换，比如拿a角色替换bill和b角色替换zoey(以此类推)的vpk一起
+        转换前的文件请确保必要的文件名前缀一致，例如AA_bill、AA_bill、AABB_xxx转换后的文件名会是AA，或者手动解包合并打包后转换
+        如果转换后的文件，和已经安装的mod文件命名冲突了，请重命名原始文件后再重新转换，而不是重命名转换后的文件
+    相关cvar
+        l4nsurvivor                       是否启用，参数2则不替换队友模型
+        l4nsurvivor_allocation_algorithm  给队友分配模型的算法(0按uid，1根据steamid，2随机，3随机不重复)
+        l4nsurvivor_allow_bot             是否允许bot使用
+        l4nsurvivor_trace                 输出调试信息
 
 ======== Neko_Engine_Post着色器 ======
     添加“-l4n_use_neko_engine_post”启动项来使用，l4n将接管引擎的后处理渲染
-    添加启动项后能够提供以下功能：
-    色调映射：能够使画面亮处不会过曝丢失太多细节，脱离老引擎的刻板印象
-    伽马调整(gamma)：和视频设置里亮度滑块类似的作用，可以在非独占全屏时生效
-    泛光(NekoBloom)：使画面亮处更有氛围感
+    提供以下功能：
+        色调映射：能够使画面亮处不会过曝丢失太多细节，脱离老引擎的刻板印象
+        伽马调整(gamma)：和视频设置里亮度滑块类似的作用，可以在非独占全屏时生效
+        泛光(NekoBloom)：使画面亮处更有氛围感
 
 ========以下功能需要MOD适配========
     l4nscope，武器模型为单位的自定义开镜效果
@@ -365,8 +413,36 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
     新增的材质代理
     l4n_survivor
 
-部分cvar(convar)的值是不会保存的
-如果停用l4n或回退l4n版本，保存的值可能会丢失，为了防止这种情况可以把cvar带上期望值写进autoexec.cfg里
+========l4n lookat========
+    +l4n_lookat [itempickup/helpinghand/fidget]
+    触发物品伸手动画的绑定：bind v "+l4n_lookat itempickup"
+    触发队友伸手动画的绑定：bind v "+l4n_lookat helpinghand"
+    触发Fidget动画的绑定：bind v "+l4n_lookat fidget"
+    随机触发两种动画的绑定：bind v "+l4n_lookat"
+    循环动画默认只播放一次，长按则保持播放循环动画
+    mdl可添加备注来提高使用体验(详见mdl_extension.qc)
+    concmd l4n_lookat_vmconfig的参数信息
+        itempickup_onlyloop     0或1, -1切换
+        helpinghand_onlyloop    0或1, -1切换
+        itempickup              0或1, -1切换
+        helpinghand             0或1, -1切换
+        fidget                  0或1, -1切换
+
+======== 第一人称模型(v模)展示模式 ========
+    mdl可定义名为l4n_inspect的Attachment作为默认原点
+    convar l4n_vm_inspect_mode              启用后按住1到9之间的数字键，再配合鼠标滚轮来调整旋转/平移/原点的xyz分量
+    concmd l4n_vm_inspect_config
+        无参数打印当前的设置
+        reset: 清除保存的设置
+
+========== VPK Overlay ==========
+    能够在每次加载地图时，自动从备选库中为你随机、顺序挑选或指定挂载不同的VPK模组，无需重启游戏
+    例如：每次换地图自动换一把不同皮肤的枪，或切换不同的幸存者模型
+    cvar l4n_vpkoverlay     启用或者禁用
+    更多信息在config_template.vdf里
+
+部分cvar(convar)的值是没有启用保存功能的，可以把cvar带上期望值写进autoexec.cfg里
+如果停用l4n或回退l4n版本，保存的值可能会丢失，通过事先备份config.cfg文件，之后在控制台运行exec并指定备份的cfg文件还原设置
 控制台运行"l4n_revert_cvar cvar_name"可以将指定cvar恢复到默认值，或者控制台输cvar的名字并运行来查看默认值
 
 此列表包含了一些上面没提到的功能：
@@ -374,9 +450,6 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
     l4n_allow_flashlightmuzzleflash 1   是否允许第一人称手电筒火光
     l4n_game_hud_visible 1，            控制游戏HUD的显示与隐藏；
     l4n_specialinfected_randommodel 0   特感随机使用一二代模型的开关
-    l4nsurvivor 1                       是否启用l4nsurvivor功能，参数2则不替换队友模型
-    l4nsurvivor_allocation_algorithm 1  l4n_survivor给除了自己的玩家分配模型的算法(0按userid，1根据steamid，2userid+随机数)
-    l4nsurvivor_allow_bot 1             是否允许bot使用l4nsurvivor
     l4n_vm_sway 1                       v模视角转动滞后开关
     l4n_vm_sway_interp 0.1,             v模随视角转动滞后恢复时间，设置为0则禁用v模随视角转动的滞后(sway)效果
     l4n_vm_sway_scale 1.6,              v模随视角转动滞后幅度
@@ -384,6 +457,9 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
     l4n_vm_offset_y 0,                  全局v模位置偏移y
     l4n_vm_offset_z 0,                  全局v模位置偏移z
     l4n_vm_offset_x 0;                  全局v模位置偏移x
+    l4n_vm_allow_camera_animation       允许v模动画驱动摄像机
+    l4n_vm_allow_movex                  允许v模移动动画
+    l4n_vm_allow_vaims                  允许v模上下瞄准动画
     l4n_menu_offset_x 0, 
     l4n_menu_offset_y 0;                控制l4n_menu显示的位置
     l4n_menu_font_size 32，             l4n_menu的字体大小
@@ -396,7 +472,7 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
     l4n_game_usage_pos 32，             控制l4n_game_usage显示的位置
     l4n_game_usage_padding 24，         控制l4n_game_usage距屏幕边缘的位置
     l4n_survivor_sequence_strip         是否修复幸存者mod的动画数量，修改后需重启游戏，更多信息查看config_template.vdf
-    l4n_prevent_varms_stretching 0      是否禁止第一人称手模动画里部分骨骼的拉伸
+    l4n_prevent_varms_stretching 0              是否禁止第一人称手模动画里部分骨骼的拉伸
     l4n_player_list_show_steam_avatar 1         +l4n_player_list显示steam玩家头像
     l4n_player_list_vomitjar_icon_clip 0        +l4n_player_list裁剪胆汁图标
     l4n_engine_post_allow_local_contrast 1      是否允许使用局部对比度(-1仅负, 0完全禁用, 1正负, 2仅正)
@@ -414,8 +490,7 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
     l4n_proxy 1                                 是否启用l4n的材质代理
     l4n_ambient_darkness_limit 0.0              环境光的暗度限制
     l4n_lightmap_darkness_limit 0.0             光照贴图的暗度限制
-    l4n_charactor_model_random_scale 0.0        非零启用角色模型随机缩放，绝对值为缩放范围
-    l4n_pin_viewmodel 0                         固定viewmodel实体
+    l4n_vm_pin 0                                固定viewmodel实体
     l4n_allow_hud_team_player_display 1         允许HUD显示队友状态
     l4n_flashlight_factor 1.0                   手电筒亮度倍率
     l4n_flashlight_r 1.0                        手电筒颜色R倍率
@@ -424,11 +499,9 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
     l4n_allow_lobby_cheats 0                    Can't use cheats now; please exit to main menu and start your own listen server with "map mapname" so that you could enable cheats.
     l4n_force_dummy_addoninfo 0                 参考上方mod检查的注意事项
     l4n_patch_team_player_display               是否接管HUD BOT名字和头像的显示，数值2则忽略BOT名字
-    l4n_hud_scope_draw_padding_block            HUD开镜黑边填充
-    l4n_patch_hud_scope 1                       是否接管狙击枪开镜HUD的渲染
     l4n_max_background_bik 5                    大厅背景视频的数量，如果你只有一个，不想要复制4遍并节省空间，可以设置为1，如果你不满足5个随机，可设置为大于5的数值
     l4n_to_nekotoon_allow_outline 1             l4n_to_nekotoon转nekotoon时是否启用描边
-    l4n_allow_consistency_check 0               禁用则跳过一致性检查，无论sv_consistency的值如何
+    l4n_allow_consistency_check                 禁用则跳过一致性检查，无论sv_consistency的值如何
     l4n_thirdpersion_crosshair_alpha            精确第三人称准星透明度
     l4n_thirdpersion_crosshair_scale            精确第三人称准星缩放
     l4n_thirdpersion_crosshair_dynamic          精确第三人称准星动态缩放
@@ -452,12 +525,24 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
     l4n_hudmenu_offset_y                        Hud菜单的y位置偏移
     l4n_view_punch_scale                        受击晃动强度
     l4n_screen_shake_scale                      屏幕震动强度
+    l4n_hudscope_draw_override                  是否接管开镜HUD的渲染，关闭会影响l4n与hud开镜有关功能的正常运行
+    l4n_hudscope_draw_padding_block             HUD开镜黑边填充
+    l4n_hudscope_draw                           HUD开镜渲染
+    l4n_vm_addon_fix                            是否强制手模匹配玩家模型，这可以解决一代图使用二代角色的手模不匹配问题
+    l4n_specialinfected_random_scale            非零启用特感模型随机缩放，绝对值为缩放范围
+    l4n_survivor_random_scale                   非零启用幸存者模型随机缩放，绝对值为缩放范围
+    l4n_commoninfected_random_scale             非零启用普感模型随机缩放，绝对值为缩放范围
+    l4n_scope_fov_scale                         开镜fov缩放
+    l4n_scope_fov                               开镜fov
+    l4n_scope_fov_adjust                        开镜fov缩放调整(滚轮，蹲下微调)
+    l4n_vm_dual_quaternion_skinning             为v模材质添加"$DualQuatSkinning 1"
+    l4nsv_steam_auth_bypass                     是否绕过玩家的steam验证，可以避免"No Steam Logon"问题
+    l4n_bonesetup_force_threaded                是否使用多线程骨骼变换计算
 【ConCommand】
     l4n_vm_offset2 [x/dx/y/dy/z/dz/reset] [value], 为当前使用的v模设置位置偏移，带d的是增量；参数reset归零xyz
     l4n_menu                                显示l4n主菜单
     l4n_survivor_sequence_test，            检查场景里幸存者模型的动画有无问题，一般是和动画mod有关
     +l4n_player_list，                      显示更多玩家信息的面板；添加参数1来bind后，则双击才能显示，单击显示原版计分板
-    +l4n_lookat [itempickup/helpinghand]    触发物品或倒地队友伸手动画; bind按键后支持长按loop，双击相比单击多了前摇和后摇动画; 快速绑定："bind v +l4n_lookat"
     l4n_placelight exponent 1 radius 2000   放置动态环境光源，添加参数“remove”或绑定按键双击则移除。此功能适用于室内补光，动态光源的性能不好，可能会出现大幅掉帧
     l4n_vm_selfillum                        调整当前v模的自发光强度，有正负号时数值代表增量
     l4n_mat_showtextures                    相比mat_showtextures多了字符串匹配的功能
@@ -485,6 +570,8 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
     l4n_custom_command_menu                 加载配置文件并显示自定义命令菜单
     l4n_reload_sequence_event_vdf
     l4n_reload_config
+    l4n_analyze_dumps
+    l4n_show_addon_load_order               和show_addon_load_order功能一样，区别是能够正确输出utf8格式的文本
 【NekoShaders】
     mat_outline_thickness_scale 1.0     描边粗细倍率，0则关闭描边
     mat_pbr_where 0                     设置1则高亮闪烁PBR材质，用于查找哪些材质使用了PBR着色器
@@ -492,6 +579,7 @@ l4n能对部分引擎bug进行修复，其它已知bug因为触发条件低等�
     mat_nekosky_overlay_strength 1.0    NekoSky叠加纹理的强度
     mat_neko_allow_invert_tonemap 1     是否抑制某些色调映射曲线对颜色的影响(仅支持部分着色器如nekotoon)，数值2则允许在nekobloom启用的情况下生效
     mat_nekorefract_color_invert_exponent
+    mat_neko_dual_quaternion_skinning
     nekotoon:
         mat_nekotoon_allow_lightwarp 1      是否使用非平展渲染
         mat_nekotoon_lambert_factor 1       环境或手电筒光照的阴影强度
@@ -526,8 +614,6 @@ l4n各种配置文件的模版(使用记事本打开来查看具体作用)：
 【other_tools.7z/VPKShellExtensions】
     Windows资源管理器显示vpk文件略缩图和mod标题元信息的插件
 
-l4n_magic_converter
-    幸存者mod转换工具
 
 
 ============For Modder==========
@@ -540,7 +626,13 @@ l4n_magic_converter
         - l4n/scripts/sound/my_script.txt
         - sound/aaaa/ohhh.wav
         - sound/sound.cache
-    pcf和声音脚本的命名应该以“作者名_AK47.txt”类似的思路，减少与其他mod冲突的可能性；
+    pcf和声音脚本的命名应该以“作者名_AK47.txt”或类似的思路，减少文件冲突的可能性；
+    其它文档：
+        https://developer.valvesoftware.com/wiki/Looping_a_sound
+        https://developer.valvesoftware.com/wiki/Soundscripts
+
+【source_nekomimi.exe】        
+    音频工具，用于在wav语音之间复制口型数据，或者生成sound.cache(目前不支持带口型数据的sound.cache生成)
 
 pcf粒子文件加载:
     "l4n/particles"目录下的任意的pcf文件会被粒子系统加载(文件名"!"前缀有对应的效果)，用于扩充粒子特效。
@@ -554,9 +646,6 @@ pcf粒子文件加载:
 【other_tools.7z/nekook.exe】   
     根据配置启动游戏或者引擎工具，同时将当前目录挂载到引擎的文件系统里，使当前目录的游戏资产能以最高优先级被引擎读取
 
-【source_nekomimi.exe】        
-    音频工具，用于在wav语音之间复制口型数据，或者生成sound.cache(目前不支持带口型数据的sound.cache生成)
-
 【copy_sentence.bat】
     从游戏原版语音文件复制口型数据到自定义语音文件的预设
 
@@ -564,7 +653,173 @@ pcf粒子文件加载:
     用于快速生成sound.cache，主要用于音效，不适合带口型数据的语音
 
 
-===========更新日志==========
+===========历史更新日志==========
+[2.51.0]
+新增：VPK Overlay功能
+新增：cvar l4n_vm_allow_movex
+新增：cvar l4n_vm_allow_vaims
+新增：concmd l4n_vm_inspect_config
+修复：l4n_analyze_dumps输出的时间不匹配本机时区
+修改：l4n插件的hud菜单提供了刷新菜单状态的接口
+
+[2.50.3]
+修改：启动时检查启动项语法的合规性
+
+[2.50.2]
+修复：PBR着色器的手电筒光照衰减问题
+修复：动画镜头意外应用了开镜fov倍率调整
+
+[2.50.1]
+新增：convar l4nsurvivor_trace
+修复：上个版本带来的栈异常问题
+
+[2.50.0]
+修改：将游戏日志系统的所有通道都保存到logging_system.log里
+新增：concmd l4n_analyze_dumps
+修复：l4n_vm_dual_quaternion_skinning打开后需要重新刷新手模才能看到效果
+修改：改进崩溃处理，使用crashpad来生成崩溃转储，保存位置位于crash_dumps/reports
+修改：崩溃时将游戏日志保存到crash_dumps/attachments文件夹内
+修改：更新l4n插件接口到版本2，公开了hud菜单的访问
+
+[2.49.1]
+修复：+l4n_lookat遇到没有loop动画的模型不会触发extend动画
+修改：to_l4n_surrivor输出的文件使用更短的前缀"[l4ns]"
+
+[2.49.0] 2026-09-26
+修改：left4dead.exe导出用于AMD和NVIDIA显卡的全局变量，帮助DXVK识别到独显
+修改：l4nsurvivor_allocation_algorithm新增不重复随机选项
+新增：concmd l4n_lookat_vmconfig
+移除：+l4n_lookat的双击功能
+修复：l4n_survivor选择准星处玩家功能在未命中实体时的崩溃问题
+新增：cvar l4nsv_steam_auth_bypass，用于避免自己为主机时遇到"No Steam Logon"
+
+[2.48.1]
+修复：上个版本的一个崩溃bug
+
+[2.48.0]
+修改：非站立状态下不会应用player_foot效果
+新增：convar mat_neko_dual_quaternion_skinning
+新增：convar l4n_vm_dual_quaternion_skinning
+新增：nekotoon参数$DualQuatSkinning
+新增：nekotoon参数$BackFaceShade
+修改：l4n_vm_inspect_mode会尝试使用名为l4n_inspect的Attachment作为原点
+
+[2.47.2]
+修复：nekotoon的$BaseTexture2在自发光通道的混合问题
+
+[2.47.1]
+修复：引擎CommitVertexTextures的handle判断问题，该问题会导致描边蒙版失效
+修改：readme_l4n增加了CommitVertexTextures的细节说明
+修改：config_template增加了mimalloc的细节说明
+
+[2.47.0]
+新增：nekotoon参数$RimShade等
+新增：nekotoon参数$BaseTexture2Transform, $BaseTexture2BlendMode, $BaseTexture2Panosphere等
+新增：outline参数$OutlineViewModelFactor
+修改：convar l4n_scope_fov_scale_adjust改名为l4n_scope_fov_adjust
+
+[2.46.0]
+新增：convar l4n_scope_fov_scale
+新增：convar l4n_scope_fov
+新增：convar l4n_scope_fov_scale_adjust
+修复：l4n hud菜单返回上一菜单后页面重置
+
+[2.45.1]
+移除：convar l4n_charactor_model_random_scale
+新增：convar l4n_specialinfected_random_scale
+新增：convar l4n_survivor_random_scale
+新增：convar l4n_commoninfected_random_scale
+
+[2.45.0]
+修复："l4n_vm_allow_camera_animation 0"导致某些v模动画的手臂出现问题
+修改：+l4n_look_at使用ACT_VM_FIDGET作为备选动画
+修改：移除config.vdf的key_bind_acts配置项，使用key_bind_acts.vdf文件替代
+新增：nekotoon参数$LightingSaturation
+修改：$EmissionTonemapScaleAmount在$EmissionTint小于0.05的时候会被设置为0，除非显式声明
+
+[2.44.2]
+修复：l4n_patch_team_player_display对非正方形倒地hud的判断问题
+
+[2.44.1]
+新增：convar l4n_vm_addon_fix
+修改：将convar l4nsurvivor设置为可保存
+修改：l4n_patch_team_player_display会根据倒地hud元素的尺寸来显示倒地图或或头像
+修改：将convar l4n_pin_viewmodel改名为l4n_vm_pin
+修改：优化l4n_vm_inspect_mode的体验，新增了shift微调与按0键保存当前参数的功能
+修复：l4n_vm_allow_camera_animation关闭时可能的视角颠倒问题
+
+[2.44.0]
+修复：+l4n_lookat触发动画期间切换武器再切换回来导致其它动画停止的问题
+修复：l4ngui本地化文件加载时机过早的问题，该问题由2.43版本更新带来，会导致之后autoexec被运行的阶段里设置的cl_language没有效果
+新增：convar l4n_vm_inspect_mode
+新增：convar l4n_vm_allow_camera_animation
+修改：优化l4n_menu的UI
+
+[2.43.1]
+修改：尽量避免hudmenu的闪烁问题
+修复："+l4n_player_list"的一个闪退bug
+修改：convar l4n_patch_hud_scope改名为l4n_hudscope_draw_override, 默认值设置为0
+修改：convar l4n_hud_scope_draw_padding_block改名为l4n_hudscope_draw_padding_block
+新增：convar l4n_hudscope_draw
+
+[2.43.0]
+修改：l4n菜单里新增了NekoShaders的设置，新增的"统一lightwarp"功能可用于解决不同mod作者间光照标准不统一的问题
+新增：convar mat_nekotoon_normalized_lightwarp
+修改：将mat_outline_thickness_scale设置为可保存
+修复：l4n_view_punch_scale的失效问题
+修复：服务器浏览器本地化文本加载失败导致的l4n本地化功能失效
+
+[2.42.1]
+修复：l4nsurvivor随机分配算法在实体随机数生成前就已经生效的问题
+
+[2.42.0]
+修复：l4nsurvivor随机分配算法在玩家进入闲置时的卡顿问题
+修改：转换NekoToon菜单新增了描边选项
+新增：convar l4n_to_nekotoon_outline_type
+移除：convar l4n_survivor_model_use_nekotoon
+移除：convar l4n_to_nekotoon_allow_outline
+
+[2.41.1] 2026-08-12
+修复：l4n_view_punch_scale为零时，客户端预测导致的视角抖动
+修改：优先使用cl_language来确定l4ngui的显示语言
+
+[2.41.0]
+新增：convar l4n_screen_shake_scale
+新增：convar l4n_view_punch_scale
+新增：convar l4n_hudmenu_offset_x, l4n_hudmenu_offset_y
+修复：survivor_vpk_gen生成的addoninfo全是"(bill)"后缀的问题
+
+[2.40.2]
+移除：replace_memory_allocator配置项，目前该功能不能替换dxvk的内存分配，容易与dxvk冲突
+
+[2.40.1]
+修改：l4n_game_usage新增了mimalloc的current commit
+修复：+l4n_lookat触发的动画有概率丢失event的问题
+修复：+l4n_lookat播放动画期间，触发原生伸手动画时的视角卡顿
+
+[2.40.0]
+修改：移除存在缺陷的l4n_survivor_model_nodecal，此版本提供了更好更细致的方案来禁用贴花，可以在l4n菜单的实体选项里访问
+新增：convar l4n_decal_allow_staticprop
+新增：convar l4n_decal_allow_entity
+新增：convar l4n_decal_allow_special_infected
+新增：convar l4n_decal_allow_survivor
+新增：convar l4n_decal_allow_common_infected
+修复：launch_options里值的空格转义问题
+
+[2.39.0]
+新增：可选的咪内存分配器(mimalloc)，通过config.vdf配置来开启，能减少内存碎片
+修复：+score无法显示自定义头像
+修复：上个版本带来的+l4n_lookat触发问题
+
+[2.38.0] 2026-08-03
+新增：convar l4n_allow_entity_dissolve
+新增：convar l4n_scripted_hud_allow
+新增：15个前缀为"l4n_scripted_hud_allow_slot"的convar
+修复：+l4n_lookat在手枪上的状态问题
+修复：+l4n_lookat在没有extern动画的模型上不能触发loop的问题
+修复：+l4n_lookat进入loop动画的衔接问题
+修改：优化l4nsurvivor对bot的处理，减少触发模型加载的情况
+
 [2.37.0]
 新增：convar l4n_reshade_draw
 新增：convar l4n_thirdperson_fire_sound_fix

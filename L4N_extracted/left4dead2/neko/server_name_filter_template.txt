@@ -28,3 +28,4 @@
 .*上帝.*
 .*HTの.*
 .*仙行录.*
+//如果找不到server_name_filter.txt则会读取server_name_filter_template.txt
