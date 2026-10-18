@@ -138,7 +138,7 @@ private:
 	// Port of SKT_Evt_CheckWeaponKill (0x100389F0): is this death attributable to a
 	// player weapon? 250 ms same-attacker fast path, then a deny list, then a
 	// held-weapon class fallback.
-	bool IsWeaponKill(IGameEvent* event);
+	bool IsWeaponKill(IGameEvent* event) const;
 	bool HitCheck(const KillTheme& theme, const char* eventName, bool headshot, bool melee,
 		int streak, KillStyle& out) const;
 	void Trigger(bool special, const Classification& classification, int streak);
@@ -196,8 +196,8 @@ private:
 	// on the target instead of the local player. skeeto reads victim_x/y/z for this.
 	Vector m_eventPosition;
 	// SKT_Evt_CheckWeaponKill's 250 ms repeat cache.
-	std::uint32_t m_lastWeaponKillTick = 0;
-	int m_lastWeaponKillAttacker = 0;
+	mutable std::uint32_t m_lastWeaponKillTick = 0;
+	mutable int m_lastWeaponKillAttacker = 0;
 	bool m_eventPositionValid = false;
 };
 

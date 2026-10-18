@@ -397,7 +397,7 @@ bool KillFeedback::IsMethodEnabled(const Classification& classification) const {
 // Port of SKT_Evt_CheckWeaponKill (0x100389F0). Returns true when the death can be
 // attributed to a player weapon, which is what decides melee classification, the
 // crown key and the level key.
-bool KillFeedback::IsWeaponKill(IGameEvent* event) {
+bool KillFeedback::IsWeaponKill(IGameEvent* event) const {
 	if (!event) return false;
 	const std::uint32_t now = Now();
 	int attacker = event->GetInt("attacker", 0);
