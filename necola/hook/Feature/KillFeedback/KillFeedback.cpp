@@ -329,6 +329,21 @@ KillFeedback::Victim KillFeedback::VictimFromZombieClass(int zombieClass) const 
 }
 
 KillFeedback::Victim KillFeedback::VictimFromEvent(IGameEvent* event) const {
+	// skeeto matches the event's victimname string (MatchFxKey); the entity class is
+	// only a fallback, because m_zombieClass() can already be gone on player_death.
+	if (event) {
+		const char* name = event->GetString("victimname", "");
+		if (name && *name) {
+			if (std::strcmp(name, "Smoker") == 0) return Victim::Smoker;
+			if (std::strcmp(name, "Boomer") == 0) return Victim::Boomer;
+			if (std::strcmp(name, "Hunter") == 0) return Victim::Hunter;
+			if (std::strcmp(name, "Spitter") == 0) return Victim::Spitter;
+			if (std::strcmp(name, "Jockey") == 0) return Victim::Jockey;
+			if (std::strcmp(name, "Charger") == 0) return Victim::Charger;
+			if (std::strcmp(name, "Tank") == 0) return Victim::Tank;
+			if (std::strcmp(name, "Witch") == 0) return Victim::Witch;
+		}
+	}
 	if (!event || !I::EngineClient || !I::ClientEntityList) return Victim::Unknown;
 	const int userId = event->GetInt("userid", 0);
 	const int ent = I::EngineClient->GetPlayerForUserID(userId);
@@ -408,8 +423,8 @@ bool KillFeedback::HitCheck(const KillTheme& theme, const char* eventName, bool 
 			consider(theme.streakDefault);
 		}
 		consider(theme.kill);
-		consider(theme.melee);
-		consider(theme.headshot);
+		if (melee) consider(theme.melee);
+		if (headshot) consider(theme.headshot);
 	}
 	out = best;
 	return best.enabled;
@@ -724,7 +739,11 @@ void KillFeedback::HandleEvent(IGameEvent* event) {
 		const Victim victim = VictimFromEvent(event);
 		const int userId = event->GetInt("userid", 0);
 		// Unresolved victim: leave it to the per-class dedicated event below.
-		if (victim == Victim::Unknown) return;
+		if (victim == Victim::Unknown) {
+			Log("player_death unresolved vn=%s atk=%d userid=%d",
+				event->GetString("victimname", "?"), event->GetInt("attacker", 0), userId);
+			return;
+		}
 		PendingKill kill;
 		kill.victim = victim;
 		kill.classification = Classify(event, true);
