@@ -863,36 +863,6 @@ public:
 			(G::Vars.hitFeedbackEnabled ? "开]" : "关]"));
 	}
 
-	// Adds any theme that the menu does not offer yet. The menus are built once at
-	// init (before themes are discovered), so without this a theme shipped inside
-	// a pack could be loaded by KillFeedback but never be selectable.
-	void AppendDiscoveredThemes(const std::shared_ptr<MenuNode>& menu, const char* channel,
-		const std::vector<ThemeChoice>& choices) {
-		if (!menu) return;
-		for (const auto& theme : choices) {
-			// Returns false when no item carries this prefix — used as the
-			// "already present?" probe.
-			if (menu->updateOptionNameByPrefix(theme.label, theme.label)) continue;
-			const std::string id = theme.id;
-			if (channel[0] == 's') {
-				menu->addOption(theme.label, [this, id]() {
-					if (id != "off") {
-						G::Vars.killFeedbackSiDedicated = true;
-						auto hitMenu = FindMenuById("kill_hit_tip");
-						if (hitMenu) hitMenu->setSwitchStateByName("SI视觉优先", true);
-					}
-					F::KillFeedbackMgr.SetTheme("si", id);
-					RefreshKillFeedbackLabels();
-				});
-			} else {
-				menu->addOption(theme.label, [this, id]() {
-					F::KillFeedbackMgr.SetTheme("ci", id);
-					RefreshKillFeedbackLabels();
-				});
-			}
-		}
-	}
-
 	void RefreshKillFeedbackLabels() {
 		RefreshRootLabels();
 		auto menu = FindMenuById("kill_feedback");
@@ -1332,6 +1302,38 @@ public:
 				if (id == choice.id) return choice.display;
 			}
 			return id.empty() ? "未选择" : id;
+		}
+
+		// Adds any theme that the menu does not offer yet. The menus are built once
+		// at init (before themes are discovered), so without this a theme shipped
+		// inside a pack could be loaded by KillFeedback but never be selectable.
+		// Defined after ThemeChoice: a parameter type is parsed immediately, unlike
+		// a member-function body.
+		void AppendDiscoveredThemes(const std::shared_ptr<MenuNode>& menu, const char* channel,
+			const std::vector<ThemeChoice>& choices) {
+			if (!menu) return;
+			for (const auto& theme : choices) {
+				// Returns false when no item carries this prefix — used as the
+				// "already present?" probe.
+				if (menu->updateOptionNameByPrefix(theme.label, theme.label)) continue;
+				const std::string id = theme.id;
+				if (channel[0] == 's') {
+					menu->addOption(theme.label, [this, id]() {
+						if (id != "off") {
+							G::Vars.killFeedbackSiDedicated = true;
+							auto hitMenu = FindMenuById("kill_hit_tip");
+							if (hitMenu) hitMenu->setSwitchStateByName("SI视觉优先", true);
+						}
+						F::KillFeedbackMgr.SetTheme("si", id);
+						RefreshKillFeedbackLabels();
+					});
+				} else {
+					menu->addOption(theme.label, [this, id]() {
+						F::KillFeedbackMgr.SetTheme("ci", id);
+						RefreshKillFeedbackLabels();
+					});
+				}
+			}
 		}
 
 		struct KillFeedbackSwitchBinding {
