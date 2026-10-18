@@ -72,7 +72,8 @@ struct KillTheme {
 	KillStyle headshot;
 	KillStyle melee;
 	KillStyle streak[11];
-	KillStyle streakDefault;	std::unordered_map<std::string, KillStyle> fx;
+	KillStyle streakDefault;
+	std::unordered_map<std::string, KillStyle> fx;
 	bool loaded = false;
 };
 
@@ -134,7 +135,10 @@ private:
 	Classification Classify(IGameEvent* event, bool special) const;
 	bool HitCheck(const KillTheme& theme, const char* eventName, bool headshot, bool melee,
 		int streak, KillStyle& out) const;
-	void Trigger(bool special, const Classification& classification, int streak);	// skeeto's fixed fx keys: skeet/melee_skeet/headshot_skeet/crit_text/melee_crown/	// perfect_crown/crown. Resolved from the theme and played at a world position.	bool DispatchFx(const char* key, const Vector& position);
+	void Trigger(bool special, const Classification& classification, int streak);
+	// skeeto's fixed fx keys (MatchFxKey + DetectCrown): skeet, melee_skeet,
+	// headshot_skeet, crit_text, melee_crown, perfect_crown, crown.
+	bool DispatchFx(const char* key, const Vector& position);
 	void HandleKill(const PendingKill& kill);
 
 	void PlayStyle(const KillStyle& style, int defaultDuration, bool allowRepeat);
