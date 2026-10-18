@@ -159,10 +159,12 @@ void Drain() {
 		if (record.health >= 0) {
 			// skeeto compares the recorded health against the entity's field at drain
 			// time; a mismatch means the victim moved on (healed, died, slot reused).
-			auto* victim = I::ClientEntityList->GetClientEntity(record.entIndex);
-			if (!victim || victim->GetHealth() != record.health) {
-				Log("hit dropped: health %d != %d ent=%d", record.health,
-					victim ? victim->GetHealth() : -1, record.entIndex);
+			auto* victimEntity = I::ClientEntityList->GetClientEntity(record.entIndex);
+			auto* victim = victimEntity ? victimEntity->As<C_TerrorPlayer*>() : nullptr;
+			const int liveHealth = victim ? victim->m_iHealth() : -1;
+			if (!victim || liveHealth != record.health) {
+				Log("hit dropped: health %d != %d ent=%d", record.health, liveHealth,
+					record.entIndex);
 				continue;
 			}
 		}
