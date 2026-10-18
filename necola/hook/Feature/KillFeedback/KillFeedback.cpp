@@ -394,11 +394,63 @@ bool KillFeedback::IsMethodEnabled(const Classification& classification) const {
 	return true;
 }
 
+// Port of SKT_Evt_CheckWeaponKill (0x100389F0). Returns true when the death can be
+// attributed to a player weapon, which is what decides melee classification, the
+// crown key and the level key.
+bool KillFeedback::IsWeaponKill(IGameEvent* event) {
+	if (!event) return false;
+	const std::uint32_t now = Now();
+	int attacker = event->GetInt("attacker", 0);
+	if (attacker <= 0) attacker = event->GetInt("userid", 0);
+
+	// 1) repeat by the same attacker within 250 ms is accepted immediately
+	if (m_lastWeaponKillTick != 0 && m_lastWeaponKillAttacker > 0 &&
+		now - m_lastWeaponKillTick < 250 && attacker == m_lastWeaponKillAttacker) {
+		return true;
+	}
+
+	bool result = false;
+	const char* weapon = event->GetString("weapon", "");
+	if (weapon && *weapon) {
+		// 2) deny list straight from skeeto
+		static const char* const kDenied[] = {
+			"world", "player", "entityflame", "inferno", "prop_minigun",
+			"prop_mounted_machine_gun",
+		};
+		bool denied = false;
+		for (const char* entry : kDenied) {
+			if (ContainsNoCase(weapon, entry)) { denied = true; break; }
+		}
+		result = !denied && IsMeleeWeaponName(weapon);
+	}
+
+	// 3) fallback: classify the local player's held weapon class name
+	if (!result && I::EngineClient && I::ClientEntityList) {
+		const int local = I::EngineClient->GetLocalPlayer();
+		auto* entity = local > 0 ? I::ClientEntityList->GetClientEntity(local) : nullptr;
+		auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
+		if (player) {
+			auto* held = player->GetActiveWeapon();
+			auto* clientClass = held ? held->GetClientClass() : nullptr;
+			if (clientClass && clientClass->m_pNetworkName &&
+				IsMeleeWeaponName(clientClass->m_pNetworkName)) {
+				result = true;
+			}
+		}
+	}
+
+	if (result) {
+		m_lastWeaponKillTick = now;
+		m_lastWeaponKillAttacker = attacker;
+	}
+	return result;
+}
+
 KillFeedback::Classification KillFeedback::Classify(IGameEvent* event, bool special) const {
 	Classification classification;
 	if (!event) return classification;
 	classification.headshot = event->GetBool("headshot", false);
-	classification.melee = IsMeleeWeaponName(event->GetString("weapon", ""));
+	classification.melee = IsWeaponKill(event);
 	const int type = event->GetInt("type", 0);
 	classification.explosion = (type & kDmgBlast) != 0;
 	if (special && !classification.headshot && !classification.melee) {
@@ -773,7 +825,7 @@ void KillFeedback::HandleEvent(IGameEvent* event) {
 		// Charger kill is the 'level' key; anything else crit is crit_text.
 		const char* vn = event->GetString("victimname", "");
 		const bool crit = event->GetBool("headshot", false) || event->GetInt("hitgroup", 0) == 1;
-		const bool melee = IsMeleeWeaponName(event->GetString("weapon", ""));
+		const bool melee = IsWeaponKill(event);
 		const bool hookable = vn && (std::strcmp(vn, "Hunter") == 0 || std::strcmp(vn, "Jockey") == 0);
 		const bool pouncing = hookable && m_airborne.contains(userId);
 		const bool charger = vn && std::strcmp(vn, "Charger") == 0;
@@ -828,8 +880,8 @@ void KillFeedback::HandleEvent(IGameEvent* event) {
 
 		// DetectCrown: melee weapon => melee_crown, otherwise a one-shot kill =>
 		// perfect_crown, and crown as the generic fallback.
-		const char* fxKey = IsMeleeWeaponName(event->GetString("weapon", ""))
-			? "melee_crown"
+		const bool meleeKill = IsWeaponKill(event);
+		const char* fxKey = meleeKill
 			: (event->GetBool("oneshot", false) ? "perfect_crown" : "crown");
 		DispatchFx(fxKey, kill.position);
 
