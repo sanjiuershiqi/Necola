@@ -40,12 +40,18 @@ struct Record {
 	float z = 0.0f;
 	float headZ = 50.0f;
 	bool gun = true;
+	std::uint32_t gen = 0;   // per-player generation stamp at queue time
+	int health = -1;        // victim health after the hit (skeeto compares it)
 };
 
 // ---------------------------------------------------------------- queue state --
 Record g_queue[kQueueSize];
 int g_queueCount = 0;
 std::uint32_t g_mapGeneration = 1;
+
+// skeeto keeps a per-player generation slot (g_SKT_Stats_PlayerGenSlot) so a
+// recycled user id cannot inherit the previous occupant's records.
+std::uint32_t g_playerGen[65] = {};
 
 // ---------------------------------------------------------------- gate state --
 std::uint32_t g_lastAcceptedTick = 0;
@@ -146,6 +152,20 @@ void Drain() {
 			const int resolved = I::EngineClient ? I::EngineClient->GetPlayerForUserID(record.userId) : 0;
 			if (resolved != record.entIndex) continue;
 		}
+		if (record.userId > 0 && record.userId <= 64 && record.gen != g_playerGen[record.userId]) {
+			Log("hit dropped: stale generation user=%d", record.userId);
+			continue;
+		}
+		if (record.health >= 0) {
+			// skeeto compares the recorded health against the entity's field at drain
+			// time; a mismatch means the victim moved on (healed, died, slot reused).
+			auto* victim = I::ClientEntityList->GetClientEntity(record.entIndex);
+			if (!victim || victim->GetHealth() != record.health) {
+				Log("hit dropped: health %d != %d ent=%d", record.health,
+					victim ? victim->GetHealth() : -1, record.entIndex);
+				continue;
+			}
+		}
 		if (!Gate(record)) continue;
 
 		const Vector origin(record.x, record.y, record.z);
@@ -194,6 +214,12 @@ void PipelineListener::FireGameEvent(IGameEvent* event) {
 	record.tick = Now();
 	record.mapGeneration = g_mapGeneration;
 
+	if (std::strcmp(name, "player_spawn") == 0) {
+		const int userId = event->GetInt("userid", 0);
+		if (userId > 0 && userId <= 64) ++g_playerGen[userId];
+		return;
+	}
+
 	if (std::strcmp(name, "player_hurt") == 0) {
 		if (!IsLocalAttacker(event, "attacker")) return;
 		const int victimUserId = event->GetInt("userid", 0);
@@ -207,6 +233,8 @@ void PipelineListener::FireGameEvent(IGameEvent* event) {
 		record.entIndex = victimEnt;
 		record.userId = victimUserId;
 		record.damage = event->GetInt("dmg_health", 0);
+		record.gen = (victimUserId > 0 && victimUserId <= 64) ? g_playerGen[victimUserId] : 0;
+		record.health = event->GetInt("health", -1);
 		record.x = origin.x;
 		record.y = origin.y;
 		record.z = origin.z;
@@ -240,7 +268,7 @@ namespace DamagePipeline {
 bool InitListeners() {
 	if (!I::GameEventManager) return false;
 	static const char* const kEvents[] = {
-		"player_hurt", "infected_hurt",
+		"player_hurt", "infected_hurt", "player_spawn",
 		"round_start", "round_end", "mission_lost", "map_transition",
 	};
 	bool allOk = true;
@@ -263,6 +291,7 @@ void Shutdown() {
 
 void Reset() {
 	++g_mapGeneration;
+	for (int i = 0; i < 65; ++i) ++g_playerGen[i];
 	g_queueCount = 0;
 	g_lockUserId = 0;
 	g_lockEntity = 0;
