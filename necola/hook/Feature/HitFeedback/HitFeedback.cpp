@@ -369,9 +369,19 @@ void HitFeedback::OnGameEvent(IGameEvent* event) {
 			if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackHitMarker && damage > 0) {
 				TriggerHitMarker();
 			}
-		} else if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackCommon &&
-			G::Vars.hitFeedbackNumbers) {
-			RecordDamage(entIndex, damage, origin.x, origin.y, origin.z, 50.0f);
+		} else {
+			if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackCommon &&
+				G::Vars.hitFeedbackNumbers) {
+				RecordDamage(entIndex, damage, origin.x, origin.y, origin.z, 50.0f);
+			}
+			// The crosshair marker means "my shot connected" and, like skeeto's,
+			// must not depend on the damage-number options. It used to be raised
+			// only for witch hits (and for specials via player_hurt), while the
+			// health-proxy fallback that was supposed to cover everything else is
+			// never installed — so common-infected hits showed no marker at all.
+			if (G::Vars.hitFeedbackEnabled && G::Vars.hitFeedbackHitMarker && damage > 0) {
+				TriggerHitMarker();
+			}
 		}
 	}
 }

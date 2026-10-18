@@ -232,6 +232,12 @@ ADS_NONE -> ADS_LEVEL1 -> ADS_LEVEL2 -> ADS_LEVEL3 -> ADS_LEVEL4 -> ADS_NONE
 `EngineTrace` 确认。独立 `HitFeedback`
 只负责 20 槽伤害数字和红色准星标记，其 `Enabled` 不参与主题解析。
 
+准星命中标记的语义是「我这一枪打中了」，因此它**只受 `HitFeedback.Enabled` +
+`HitFeedback.HitMarker` 两个开关控制**，不受伤害数字的 `Numbers` / `CommonHits` 影响：
+`player_hurt`（特感）走 `ProcessSpecialHit`，`infected_hurt`（普通感染者与 Witch）直接触发。
+注意 `InstallHealthProxy()` 目前**从未被调用**（有意不挂 `m_iHealth` RecvProxy，避免与其他插件的
+RecvProp 链冲突），所以不存在"靠血量变化兜底"的路径——所有标记都必须由事件驱动。
+
 ## 八、配置与日志
 
 | 文件/变量 | 当前实际用途 |
