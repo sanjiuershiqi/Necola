@@ -206,9 +206,6 @@ void HitFeedback::Reset() {
 
 void HitFeedback::Shutdown() {
 	Reset();
-	if (m_damageFont && I::MatSystemSurface) {
-		I::MatSystemSurface->DeleteFont(m_damageFont);
-	}
 	m_damageFont = 0;
 	m_damageFontSize = 0;
 }
