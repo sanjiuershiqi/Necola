@@ -33,6 +33,16 @@ jobs:
         shell: pwsh
         run: choco install ninja --no-progress -y
 
+      - name: Install dependencies (vcpkg)
+        shell: pwsh
+        run: |
+          # Pinned to the workspace checkout: the VS dev shell exports its own
+          # VCPKG_ROOT, which would point the toolchain at a different vcpkg.
+          if (-not (Test-Path vcpkg\vcpkg.exe)) {
+            if (-not (Test-Path vcpkg)) { git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg }
+            & vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          }
+          & vcpkg\vcpkg.exe install spdlog minhook inipp --triplet x86-windows
       - name: Cache vcpkg
         id: cache-vcpkg
         uses: actions/cache@v4
@@ -42,24 +52,19 @@ jobs:
             ~/AppData/Local/vcpkg/archives
           key: vcpkg-cmake-x86-${{ runner.os }}-20260812
 
-      - name: Bootstrap vcpkg
-        if: steps.cache-vcpkg.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
           & vcpkg\bootstrap-vcpkg.bat -disableMetrics
-          & vcpkg\vcpkg.exe install spdlog minhook inipp --triplet x86-windows
 
-      - name: Show vcpkg list
         shell: pwsh
-        run: '& vcpkg\vcpkg.exe list'
 
       - name: Configure (Ninja, Release, sccache)
         shell: pwsh
         run: |
           cmake -S . -B build-cmake -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x86-windows `
             -DCMAKE_C_COMPILER_LAUNCHER=sccache `
             -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
