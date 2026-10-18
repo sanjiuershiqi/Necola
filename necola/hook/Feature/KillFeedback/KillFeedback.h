@@ -143,12 +143,13 @@ private:
 	bool DispatchFx(const char* key, const Vector& position);
 	void HandleKill(const PendingKill& kill);
 
-	void PlayStyle(const KillStyle& style, int defaultDuration, bool allowRepeat);
+	void PlayStyle(const KillStyle& style, int defaultDuration, bool allowRepeat,
+		const Vector* origin = nullptr);
 	void StepOverlay();
 	void SendOverlay(const char* material);
 	void ClearOverlay();
 	void PrecacheStyle(const KillStyle& style);
-	void SpawnParticles(const KillStyle& style);
+	void SpawnParticles(const KillStyle& style, const Vector* origin);
 	void PlaySound(const KillStyle& style);
 	void WarmupParticles();
 
@@ -187,6 +188,10 @@ private:
 	// Hunter/Jockey currently pouncing or riding (skeet-family gating).
 	std::unordered_set<int> m_airborne;
 	int m_logBudget = 30;
+	// Victim position of the current event, so world particles (crown/skeet fx) spawn
+	// on the target instead of the local player. skeeto reads victim_x/y/z for this.
+	Vector m_eventPosition;
+	bool m_eventPositionValid = false;
 };
 
 namespace F { inline KillFeedback KillFeedbackMgr; }

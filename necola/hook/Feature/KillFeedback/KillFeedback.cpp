@@ -497,7 +497,8 @@ bool KillFeedback::ResolveCombinedFeedback(bool kill, bool headshot, bool melee,
 	output.enabled = output.enabled || !output.overlay.empty() || !output.sound.empty();
 
 	Log("resolve kill=%d si=%d ci=%d overlay=%s", kill, siValid, ciValid, output.overlay.c_str());
-	PlayStyle(output, kill ? kKillDurationMs : kHitDurationMs, kill);
+	PlayStyle(output, kill ? kKillDurationMs : kHitDurationMs, kill,
+		m_eventPositionValid ? &m_eventPosition : nullptr);
 	return true;
 }
 
@@ -555,7 +556,7 @@ void KillFeedback::WarmupParticles() {
 	}
 }
 
-void KillFeedback::SpawnParticles(const KillStyle& style) {
+void KillFeedback::SpawnParticles(const KillStyle& style, const Vector* originOverride) {
 	if (!G::Vars.killFeedbackIcon || !U::Offsets.m_dwDispatchParticleEffect3) return;
 	PrecacheStyle(style);
 	using DispatchFn = void(__cdecl*)(const char*, Vector*, Vector*, int, int, int);
@@ -569,16 +570,16 @@ void KillFeedback::SpawnParticles(const KillStyle& style) {
 
 	Vector origin;
 	if (style.world) {
-		if (I::EngineClient && I::ClientEntityList) {
+		if (originOverride) {
+			origin = *originOverride;              // victim position carried by the event
+		} else if (I::EngineClient && I::ClientEntityList) {
+			// Fall back to the local player so a world effect stays in-bounds.
 			const int localIndex = I::EngineClient->GetLocalPlayer();
 			if (localIndex > 0) {
 				if (auto* entity = I::ClientEntityList->GetClientEntity(localIndex)) {
 					origin = entity->GetAbsOrigin();
 				}
 			}
-		}
-		if (m_pendingHits.empty()) {
-			// no confirmed hit position cached: keep the local origin
 		}
 	}
 	Vector angles;
@@ -627,14 +628,15 @@ void KillFeedback::PlaySound(const KillStyle& style) {
 	}
 }
 
-void KillFeedback::PlayStyle(const KillStyle& style, int defaultDuration, bool allowRepeat) {
+void KillFeedback::PlayStyle(const KillStyle& style, int defaultDuration, bool allowRepeat,
+	const Vector* origin) {
 	if (!style.enabled) return;
 	const std::uint32_t now = Now();
 	if (!allowRepeat && now - m_lastPlayTick < kOverlayThrottleMs) return;
 	m_lastPlayTick = now;
 
 	PlaySound(style);
-	if (G::Vars.killFeedbackIcon) SpawnParticles(style);
+	if (G::Vars.killFeedbackIcon) SpawnParticles(style, origin);
 	if (!G::Vars.killFeedbackIcon) return;
 
 	// r_screenoverlay is FCVAR_CHEAT; clear it once and allow client commands.
@@ -753,17 +755,48 @@ void KillFeedback::HandleEvent(IGameEvent* event) {
 		if (!localKill) return;
 		const Victim victim = VictimFromEvent(event);
 		const int userId = event->GetInt("userid", 0);
-		// Unresolved victim: leave it to the per-class dedicated event below.
 		if (victim == Victim::Unknown) {
 			Log("player_death unresolved vn=%s atk=%d userid=%d",
 				event->GetString("victimname", "?"), event->GetInt("attacker", 0), userId);
 			return;
 		}
+
 		PendingKill kill;
 		kill.victim = victim;
 		kill.classification = Classify(event, true);
 		kill.userId = userId;
 		kill.time = PresentationTime();
+		kill.source = "player_death";
+
+		// SKT MatchFxKey: crit = headshot || hitgroup == 1; the skeet family only
+		// applies to Hunter/Jockey while pouncing (crit outranks melee); a melee
+		// Charger kill is the 'level' key; anything else crit is crit_text.
+		const char* vn = event->GetString("victimname", "");
+		const bool crit = event->GetBool("headshot", false) || event->GetInt("hitgroup", 0) == 1;
+		const bool melee = IsMeleeWeaponName(event->GetString("weapon", ""));
+		const bool hookable = vn && (std::strcmp(vn, "Hunter") == 0 || std::strcmp(vn, "Jockey") == 0);
+		const bool pouncing = hookable && m_airborne.contains(userId);
+		const bool charger = vn && std::strcmp(vn, "Charger") == 0;
+
+		// World position for fx particles: skeeto reads victim_x/y/z.
+		const float vx = event->GetFloat("victim_x", 0.0f);
+		const float vy = event->GetFloat("victim_y", 0.0f);
+		const float vz = event->GetFloat("victim_z", 0.0f);
+		if (vx != 0.0f || vy != 0.0f || vz != 0.0f) {
+			kill.position = Vector(vx, vy, vz);
+			kill.valid = true;
+		}
+
+		const char* fxKey = nullptr;
+		if (charger && melee) fxKey = "level";
+		else if (hookable && pouncing) {
+			fxKey = crit ? "headshot_skeet" : (melee ? "melee_skeet" : "skeet");
+		} else if (crit && vn && std::strcmp(vn, "Infected") != 0) {
+			fxKey = "crit_text";
+		}
+		if (fxKey) DispatchFx(fxKey, kill.position);
+
+		m_airborne.erase(userId);
 		HandleKill(kill);
 		return;
 	}
@@ -779,19 +812,27 @@ void KillFeedback::HandleEvent(IGameEvent* event) {
 		}
 		m_lastCommonEntity = witchId;
 		m_lastCommonTime = now;
+
 		PendingKill kill;
 		kill.victim = Victim::Witch;
 		kill.classification = Classify(event, false);
 		kill.userId = witchId;
 		kill.time = PresentationTime();
 		kill.source = "witch_killed";
+		if (witchId > 0 && I::ClientEntityList) {
+			if (auto* witch = I::ClientEntityList->GetClientEntity(witchId)) {
+				kill.position = witch->GetAbsOrigin();
+				kill.valid = true;
+			}
+		}
+
 		// DetectCrown: melee weapon => melee_crown, otherwise a one-shot kill =>
 		// perfect_crown, and crown as the generic fallback.
-		const char* fxKey = nullptr;
-		if (IsMeleeWeaponName(event->GetString("weapon", ""))) fxKey = "melee_crown";
-		else if (event->GetBool("oneshot", false)) fxKey = "perfect_crown";
-		else fxKey = "crown";
-		DispatchFx(fxKey, Vector());
+		const char* fxKey = IsMeleeWeaponName(event->GetString("weapon", ""))
+			? "melee_crown"
+			: (event->GetBool("oneshot", false) ? "perfect_crown" : "crown");
+		DispatchFx(fxKey, kill.position);
+
 		HandleKill(kill);
 		return;
 	}
@@ -824,6 +865,10 @@ void KillFeedback::HandleKill(const PendingKill& kill) {
 	if (kill.userId > 0 && kill.userId == m_lastVictimUserId &&
 		now - m_lastVictimTime <= 0.5f) {
 		return;
+	}
+	if (kill.valid) {
+		m_eventPosition = kill.position;
+		m_eventPositionValid = true;
 	}
 	m_lastVictimUserId = kill.userId;
 	m_lastVictimTime = now;
@@ -1029,6 +1074,8 @@ void KillFeedback::SaveConfig() const {
 // skeeto's SKT_Fx_DispatchNamedFx + DetectCrown: the fixed keys below are looked
 // up in the theme and played like a kill style, at the victim's world position.
 bool KillFeedback::DispatchFx(const char* key, const Vector& position) {
+	m_eventPosition = position;
+	m_eventPositionValid = position.LengthSqr() > 1.0f;
 	if (!key || !*key) return false;
 	LoadThemes();
 	const KillTheme* themes[2] = {nullptr, nullptr};
@@ -1039,7 +1086,8 @@ bool KillFeedback::DispatchFx(const char* key, const Vector& position) {
 		const auto it = theme->fx.find(key);
 		if (it == theme->fx.end()) continue;
 		Log("fx %s overlay=%s", key, it->second.overlay.c_str());
-		PlayStyle(it->second, kKillDurationMs, /*allowRepeat=*/true);
+		PlayStyle(it->second, kKillDurationMs, /*allowRepeat=*/true,
+			m_eventPositionValid ? &m_eventPosition : nullptr);
 		return true;
 	}
 	return false;
