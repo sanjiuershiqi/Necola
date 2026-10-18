@@ -12,6 +12,7 @@
 #include "./Feature/AdsSupport/AdsSupport.h"
 #include "./Feature/CampaignTimer/CampaignTimer.h"
 #include "./Feature/KillFeedback/KillFeedback.h"
+#include "./Feature/DamagePipeline/DamagePipeline.h"
 #include "./Feature/ParticlePlatform/ParticlePlatform.h"
 #include "./Feature/HitFeedback/HitFeedback.h"
 #include "../sdk/L4NEnv.h"
@@ -307,7 +308,7 @@ static bool RunLoadBody()
 				"[Necola] themedHitMode=%d damageUI=%d numbers=%d marker=%d commonNumbers=%d healthProxy=%d\n",
 				G::Vars.killFeedbackHitMode, G::Vars.hitFeedbackEnabled,
 				G::Vars.hitFeedbackNumbers, G::Vars.hitFeedbackHitMarker,
-				G::Vars.hitFeedbackCommon, F::HitFeedbackMgr.HasHealthProxy());
+				G::Vars.hitFeedbackCommon, 0 /* health proxy removed */);
 		}, "print Necola hit feedback status");
 	}
 	ELog("Step 10 done");
@@ -322,7 +323,7 @@ static bool RunLoadBody()
 
 	// Hit feedback uses the same official AddListener channel (server-safe).
 	ELog("Step 12: HitFeedback listeners");
-	if (!F::HitFeedbackMgr.InitListeners()) {
+	if (!DamagePipeline::InitListeners()) {
 		ELog("WARN: hit feedback event listeners failed to register");
 	}
 	ELog("Step 12 done");
@@ -339,6 +340,7 @@ void CGlobal_ModuleEntry::undo()
 	F::KillFeedbackMgr.Shutdown();
 	ELog("undo: shutdown hit feedback");
 	F::HitFeedbackMgr.Shutdown();
+	DamagePipeline::Shutdown();
 	ELog("undo: unregister console commands");
 	F::CmdMgr.Shutdown();
 	ELog("undo: restore RecvProp proxies");

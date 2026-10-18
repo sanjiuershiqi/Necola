@@ -1,49 +1,19 @@
 #include "HitFeedback.h"
 
 #include "../../../sdk/utils/FeatureConfigManager.h"
-#include "../../../sdk/l4d2/includes/dt_recv.h"
-#include "../../../sdk/l4d2/interfaces/BaseClientDLL.h"
 #include "../../Vars.h"
-#include "../KillFeedback/KillFeedback.h"
-#include "../../../diag.h"
 
-#include <cctype>
 #include <cmath>
 #include <cstdio>
-#include <cstring>
 #include <cwchar>
-#include <utility>
-#include <vector>
 
 namespace {
+
 constexpr float kTwoPi = 6.2831855f;
 constexpr float kHalfPiShift = 4.712389f;
 
 std::uint32_t NowTick() {
 	return static_cast<std::uint32_t>(GetTickCount());
-}
-
-bool IsLocalAttacker(IGameEvent* event, const char* field) {
-	if (!event || !I::EngineClient) return false;
-	const int attacker = event->GetInt(field, 0);
-	if (attacker <= 0) return false;
-	const int resolved = I::EngineClient->GetPlayerForUserID(attacker);
-	return resolved > 0 && resolved == I::EngineClient->GetLocalPlayer();
-}
-
-bool ContainsNoCase(const char* value, const char* needle) {
-	if (!value || !needle) return false;
-	const std::size_t needleLen = std::strlen(needle);
-	for (std::size_t i = 0; value[i]; ++i) {
-		std::size_t j = 0;
-		while (j < needleLen &&
-			std::tolower(static_cast<unsigned char>(value[i + j])) ==
-			std::tolower(static_cast<unsigned char>(needle[j]))) {
-			++j;
-		}
-		if (j == needleLen) return true;
-	}
-	return false;
 }
 
 struct HitColor {
@@ -52,73 +22,15 @@ struct HitColor {
 	std::uint8_t b;
 };
 
-// 10-color palette replacing skeeto's g_HitMarkerColorTable.
+// 10-colour palette (replaces skeeto's g_HitMarkerColorTable).
 const HitColor kPalette[10] = {
 	{255, 255, 255}, {255, 236, 120}, {255, 208, 0},   {255, 160, 0},  {255, 110, 0},
 	{255, 70, 70},   {235, 40, 40},   {170, 255, 120}, {120, 210, 255}, {215, 140, 255},
 };
-int g_hitEventDiagCount = 0;
 
-}
+} // namespace
 
-bool HitFeedback::IsWitchEntity(int entIndex) const {
-	if (entIndex <= 0 || !I::ClientEntityList) return false;
-	auto* entity = I::ClientEntityList->GetClientEntity(entIndex);
-	auto* clientClass = entity ? entity->GetClientClass() : nullptr;
-	return clientClass && ContainsNoCase(clientClass->m_pNetworkName, "witch");
-}
-
-bool HitFeedback::IsSpecialEntity(int entIndex) const {
-	if (entIndex <= 0 || !I::ClientEntityList) return false;
-	auto* entity = I::ClientEntityList->GetClientEntity(entIndex);
-	auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
-	if (!player) return IsWitchEntity(entIndex);
-	const int zombieClass = player->m_zombieClass();
-	return (zombieClass >= CLASS_SMOKER && zombieClass <= CLASS_TANK) ||
-		player->GetTeamNumber() == 3 || IsWitchEntity(entIndex);
-}
-
-void HitFeedback::TriggerHitMarker() {
-	m_hitMarkerUntil = NowTick() + kHitMarkerDurationMs;
-}
-
-// Cone test shared by the hit-confirmation gate. skeeto aims 40 units above the
-// victim origin and requires the view vector to point at it, with the threshold
-// depending on range (see kFarCone*/kNearCone*). Unlike the old version this does
-// not require a C_TerrorPlayer target, so common infected and witches qualify.
-bool HitFeedback::IsInViewConeAtRange(int entIndex, float maxDistance, float minDot) const {
-	if (entIndex <= 0 || !I::EngineClient || !I::ClientEntityList) return false;
-	if (!I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return false;
-	auto* localEntity = I::ClientEntityList->GetClientEntity(I::EngineClient->GetLocalPlayer());
-	auto* local = localEntity ? localEntity->As<C_TerrorPlayer*>() : nullptr;
-	auto* target = I::ClientEntityList->GetClientEntity(entIndex);
-	if (!local || !target) return false;
-	const Vector eye = local->m_vecOrigin() + local->m_vecViewOffset();
-	Vector targetPoint = target->GetAbsOrigin();
-	targetPoint.z += 40.0f;
-	Vector direction = targetPoint - eye;
-	const float distance = direction.Normalize();
-	if (distance > maxDistance) return false;
-	if (distance <= 0.001f) return true;
-	Vector viewAngles;
-	Vector forward;
-	I::EngineClient->GetViewAngles(viewAngles);
-	U::Math.AngleVectors(viewAngles, &forward);
-	forward.Normalize();
-	return forward.Dot(direction) >= minDot;
-}
-
-// Port of the gate in SKT_Si_TrackHitFeedback. Order matters and mirrors skeeto:
-//   valid ids/entity -> far cone (gun) -> [per-victim lock] -> 70 ms throttle ->
-//   near cone -> accept & lock the victim for 400 ms.
-// A repeat on the locked victim skips the throttle and both cone tests, which is
-// what lets a burst or a shotgun pellet spread register more than once.
-
-void HitFeedback::ArmLocalAttack() {
-	m_lastAttackTick = NowTick();
-}
-
-void HitFeedback::RecordDamage(int entIndex, int damage, float x, float y, float z, float headZ) {
+void HitFeedback::AddNumber(int entIndex, int damage, const Vector& origin, float headZ) {
 	if (entIndex <= 0 || damage <= 0) return;
 	const std::uint32_t now = NowTick();
 
@@ -128,9 +40,9 @@ void HitFeedback::RecordDamage(int entIndex, int damage, float x, float y, float
 		if (now - slot.tick >= kSlotMergeWindowMs) continue;
 		slot.damage += damage;
 		if (slot.damage > 9999) slot.damage = 9999;
-		slot.worldX = x;
-		slot.worldY = y;
-		slot.worldZ = z;
+		slot.worldX = origin.x;
+		slot.worldY = origin.y;
+		slot.worldZ = origin.z;
 		slot.headZ = headZ;
 		return;
 	}
@@ -143,7 +55,6 @@ void HitFeedback::RecordDamage(int entIndex, int damage, float x, float y, float
 		}
 	}
 	if (slotIdx < 0) {
-		// skeeto: when all 20 slots are busy, wipe and start from slot 19.
 		for (int i = 0; i < kMaxSlots; ++i) m_slots[i] = DamageSlot{};
 		slotIdx = kMaxSlots - 1;
 	}
@@ -152,13 +63,12 @@ void HitFeedback::RecordDamage(int entIndex, int damage, float x, float y, float
 	slot.used = true;
 	slot.entIndex = entIndex;
 	slot.damage = damage > 9999 ? 9999 : damage;
-	slot.worldX = x;
-	slot.worldY = y;
-	slot.worldZ = z;
+	slot.worldX = origin.x;
+	slot.worldY = origin.y;
+	slot.worldZ = origin.z;
 	slot.headZ = headZ;
 	slot.tick = now;
 
-	// skeeto scatter angle: deterministic hash, clamped away from straight down.
 	const std::uint32_t hash = static_cast<std::uint32_t>(
 		0xFFFFFC5Fu * static_cast<std::uint32_t>(entIndex) +
 		0xFFFFFE0Du * now +
@@ -183,177 +93,12 @@ void HitFeedback::RecordDamage(int entIndex, int damage, float x, float y, float
 	slot.colorIdx = static_cast<std::uint8_t>(colorIdx);
 }
 
-void HitFeedbackListener::FireGameEvent(IGameEvent* event) {
-	F::HitFeedbackMgr.OnGameEvent(event);
-}
-
-bool HitFeedback::InitListeners() {
-	if (!I::GameEventManager) return false;
-	static const char* const kEvents[] = {
-		"player_hurt", "infected_hurt", "bullet_impact", "weapon_fire",
-		"round_start", "round_end", "mission_lost", "map_transition",
-	};
-	bool allOk = true;
-	bool anyOk = false;
-	for (const char* name : kEvents) {
-		const bool added = I::GameEventManager->AddListener(&m_listener, name, false);
-		allOk = allOk && added;
-		anyOk = anyOk || added;
-	}
-	m_listenersRegistered = anyOk;
-	return allOk;
-}
-
-void HitFeedback::OnGameEvent(IGameEvent* event) {
-	if (!event) return;
-	const char* name = event->GetName();
-	if (!name) return;
-	if (g_hitEventDiagCount < 20) {
-		char message[192] = {};
-		_snprintf_s(message, sizeof(message), _TRUNCATE,
-			"MapStage: HitFeedback event[%d]=%s", g_hitEventDiagCount, name);
-		NecolaDiagLog(message);
-		++g_hitEventDiagCount;
-	}
-
-	if (std::strcmp(name, "round_start") == 0 || std::strcmp(name, "round_end") == 0 ||
-		std::strcmp(name, "mission_lost") == 0 ||
-		std::strcmp(name, "map_transition") == 0) {
-		Reset();
-		return;
-	}
-	if (std::strcmp(name, "bullet_impact") == 0) {
-		if (IsLocalAttacker(event, "userid")) {
-			m_lastImpactTick = NowTick();
-			m_lastAttackTick = m_lastImpactTick;
-		}
-		return;
-	}
-	if (std::strcmp(name, "weapon_fire") == 0) {
-		if (IsLocalAttacker(event, "userid")) m_lastAttackTick = NowTick();
-		return;
-	}
-	// ---- ingress only ----
-	// skeeto's producer (SKT_Stats_QueueDamageEvent) decides nothing either: it
-	// stamps a record and lets the per-frame consumer validate it. Keeping the
-	// decision here is what made this module drift and regress.
-	PendingHit pending;
-	pending.tick = NowTick();
-	pending.mapGen = m_mapGeneration;
-	pending.gun = true;
-
-	if (std::strcmp(name, "player_hurt") == 0) {
-		if (!IsLocalAttacker(event, "attacker")) return;
-		if (!I::EngineClient || !I::ClientEntityList) return;
-		const int victimUserId = event->GetInt("userid", 0);
-		const int victimEnt = I::EngineClient->GetPlayerForUserID(victimUserId);
-		if (victimEnt <= 0) return;
-		auto* entity = I::ClientEntityList->GetClientEntity(victimEnt);
-		auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
-		if (!player) return;
-		const Vector origin = player->m_vecOrigin();
-		const Vector view = player->m_vecViewOffset();
-		pending.entIndex = victimEnt;
-		pending.userId = victimUserId;
-		pending.damage = event->GetInt("dmg_health", 0);
-		pending.x = origin.x;
-		pending.y = origin.y;
-		pending.z = origin.z;
-		pending.headZ = (view.z > 20.0f && view.z < 120.0f) ? view.z + 2.0f : 50.0f;
-		EnqueueHit(pending);
-		return;
-	}
-	if (std::strcmp(name, "infected_hurt") == 0) {
-		if (!IsLocalAttacker(event, "attacker")) return;
-		if (!I::ClientEntityList) return;
-		const int entIndex = event->GetInt("entityid", 0);
-		if (entIndex <= 0) return;
-		auto* entity = I::ClientEntityList->GetClientEntity(entIndex);
-		if (!entity) return;
-		const Vector origin = entity->GetAbsOrigin();
-		pending.entIndex = entIndex;
-		pending.userId = 0;
-		pending.damage = event->GetInt("amount", 0);
-		pending.x = origin.x;
-		pending.y = origin.y;
-		pending.z = origin.z;
-		pending.headZ = 50.0f;
-		EnqueueHit(pending);
-		return;
-	}
-}
-
-// Producer side of the rewrite: stamp and queue, decide nothing.
-void HitFeedback::EnqueueHit(const PendingHit& hit) {
-	if (hit.damage <= 0 || hit.entIndex <= 0) return;
-	if (!G::Vars.hitFeedbackEnabled) return;
-	if (m_pendingCount >= kMaxPendingHits) {
-		for (int i = 1; i < m_pendingCount; ++i) m_pending[i - 1] = m_pending[i];
-		--m_pendingCount;
-	}
-	m_pending[m_pendingCount++] = hit;
-}
-
-// Gate from SKT_Si_TrackHitFeedback, same order: far cone (gun only, 5000/0.93)
-// -> 70 ms throttle -> near cone (non-gun, 110/0.90) -> lock the victim 400 ms.
-// Repeats on the locked victim skip the throttle and both cone tests.
-bool HitFeedback::GateHit(const PendingHit& hit) {
-	if (hit.damage <= 0 || hit.entIndex <= 0) return false;
-	if (!I::ClientEntityList) return false;
-	if (!I::ClientEntityList->GetClientEntity(hit.entIndex)) return false;
-	if (hit.userId < 0 || hit.userId > 64) return false;
-	if (hit.gun && !IsInViewConeAtRange(hit.entIndex, kFarConeDistance, kFarConeDot)) return false;
-
-	const std::uint32_t now = NowTick();
-	const bool locked = m_lockEntity == hit.entIndex && m_lockUserId == hit.userId &&
-		m_lockUntil != 0 && static_cast<std::int32_t>(m_lockUntil - now) >= 0;
-	if (!locked) {
-		if (now - m_lastFeedbackTick < kHitFeedbackThrottleMs) return false;
-		if (!hit.gun && !IsInViewConeAtRange(hit.entIndex, kNearConeDistance, kNearConeDot)) return false;
-		m_lockUserId = hit.userId;
-		m_lockEntity = hit.entIndex;
-		m_lockUntil = now + kVictimLockMs;
-	}
-	m_lastFeedbackTick = now;
-	return true;
-}
-
-// Consumer side: validate then dispatch, mirroring SKT_Stats_ConsumePendingDamage.
-void HitFeedback::DrainPendingHits() {
-	if (m_pendingCount <= 0) return;
-	const std::uint32_t now = NowTick();
-	const int count = m_pendingCount < kMaxDrainPerFrame ? m_pendingCount : kMaxDrainPerFrame;
-	for (int i = 0; i < count; ++i) {
-		const PendingHit hit = m_pending[i];
-		if (hit.mapGen != m_mapGeneration) continue;
-		if (now - hit.tick > kPendingLifetimeMs) continue;
-		if (hit.userId > 0) {
-			const int resolved = I::EngineClient ? I::EngineClient->GetPlayerForUserID(hit.userId) : 0;
-			if (resolved != hit.entIndex) continue;
-		}
-		if (!GateHit(hit)) continue;
-		if (G::Vars.hitFeedbackNumbers) {
-			RecordDamage(hit.entIndex, hit.damage, hit.x, hit.y, hit.z, hit.headZ);
-		}
-		if (G::Vars.hitFeedbackHitMarker) TriggerHitMarker();
-		// Themed hit overlay stays in KillFeedback and keeps its own HitMode gate.
-		F::KillFeedbackMgr.OnSpecialHealthDrop(Vector(hit.x, hit.y, hit.z));
-	}
-	if (count >= m_pendingCount) {
-		m_pendingCount = 0;
-		return;
-	}
-	for (int i = count; i < m_pendingCount; ++i) m_pending[i - count] = m_pending[i];
-	m_pendingCount -= count;
-}
-
-void HitFeedback::Pump() {
-	DrainPendingHits();
+void HitFeedback::FlashMarker() {
+	m_hitMarkerUntil = NowTick() + kHitMarkerDurationMs;
 }
 
 void HitFeedback::Draw() {
-	if (!G::Vars.hitFeedbackEnabled || !I::GlobalVars || !I::MatSystemSurface ||
-		!I::EngineClient) return;
+	if (!G::Vars.hitFeedbackEnabled || !I::MatSystemSurface || !I::EngineClient) return;
 	if (!G::Vars.hitFeedbackNumbers && !G::Vars.hitFeedbackHitMarker) return;
 	if (!I::EngineClient->IsConnected() || !I::EngineClient->IsInGame()) return;
 
@@ -432,25 +177,23 @@ void HitFeedback::Draw() {
 		wchar_t text[16] = {};
 		const int textLen = swprintf_s(text, L"%d", slot.damage);
 		if (textLen <= 0) continue;
-		const int textWidth = textLen * (3 * (m_damageFontSize > 0 ? m_damageFontSize : 20) / 5);
+		const int fontHeight = m_damageFontSize > 0 ? m_damageFontSize : 20;
+		const int textWidth = textLen * (3 * fontHeight / 5);
 
-		// skeeto layout: scatter around the head projection, never straight down.
 		const float distAbs = std::fabs(headX - baseX);
 		const float distMax = distAbs > 28.0f ? distAbs : 28.0f;
 		const float radius = (22.0f > distMax * 0.42f ? 22.0f : distMax * 0.42f) * 0.5f + 20.0f;
-		const int drawX = static_cast<int>(std::cos(slot.angle) * radius +
-			(baseX + headX) * 0.5f) - textWidth / 2;
-		const int drawY = static_cast<int>(std::sin(slot.angle) *
-			(distMax * 0.5f + 14.0f) + (baseY + headY) * 0.5f -
-			ageFrac * 10.0f + 0.5f);
+		const float drift = ageFrac * 26.0f;
+		const int x = static_cast<int>(headX + std::cos(slot.angle) * radius - textWidth / 2);
+		const int y = static_cast<int>(headY + std::sin(slot.angle) * radius - fontHeight / 2 - drift);
 
-		const HitColor& color = kPalette[slot.colorIdx < kPaletteSize ? slot.colorIdx : 0];
-		I::MatSystemSurface->DrawSetTextColor(Color{0, 0, 0, static_cast<std::uint8_t>(alpha)});
-		I::MatSystemSurface->DrawSetTextPos(drawX + 1, drawY + 1);
+		I::MatSystemSurface->DrawSetTextPos(x + 1, y + 1);
+		I::MatSystemSurface->DrawSetTextColor(0, 0, 0, alpha);
 		I::MatSystemSurface->DrawPrintText(text, textLen);
-		I::MatSystemSurface->DrawSetTextColor(
-			Color{color.r, color.g, color.b, static_cast<std::uint8_t>(alpha)});
-		I::MatSystemSurface->DrawSetTextPos(drawX, drawY);
+
+		const HitColor& color = kPalette[slot.colorIdx % kPaletteSize];
+		I::MatSystemSurface->DrawSetTextPos(x, y);
+		I::MatSystemSurface->DrawSetTextColor(color.r, color.g, color.b, alpha);
 		I::MatSystemSurface->DrawPrintText(text, textLen);
 	}
 }
@@ -458,48 +201,35 @@ void HitFeedback::Draw() {
 void HitFeedback::Reset() {
 	for (int i = 0; i < kMaxSlots; ++i) m_slots[i] = DamageSlot{};
 	m_hitMarkerUntil = 0;
-	m_lastAttackTick = 0;
-	m_lastImpactTick = 0;
-	// A new round must not inherit the previous generation's queue or victim lock.
-	++m_mapGeneration;
-	m_pendingCount = 0;
-	m_lastFeedbackTick = 0;
-	m_lockUserId = 0;
-	m_lockEntity = 0;
-	m_lockUntil = 0;
-	// Drop the hit-confirmation lock/throttle: a new round must not inherit the
-	// previous victim's 400 ms lock.
-	m_lastFeedbackTick = 0;
-	m_lockUserId = 0;
-	m_lockEntity = 0;
-	m_lockUntil = 0;
+	m_lastColorIdx = 0;
 }
 
 void HitFeedback::Shutdown() {
-	if (m_listenersRegistered && I::GameEventManager) {
-		I::GameEventManager->RemoveListener(&m_listener);
-		m_listenersRegistered = false;
-	}
 	Reset();
+	if (m_damageFont && I::MatSystemSurface) {
+		I::MatSystemSurface->DeleteFont(m_damageFont);
+	}
+	m_damageFont = 0;
+	m_damageFontSize = 0;
 }
 
 void HitFeedback::LoadConfig(const nlohmann::json& doc) {
 	const auto section = doc.find("HitFeedback");
 	if (section == doc.end() || !section->is_object()) return;
-	auto readBool = [section](const char* key, bool fallback) {
+	auto readBool = [&section](const char* key, bool fallback) {
 		const auto value = section->find(key);
 		return value != section->end() && value->is_boolean() ? value->get<bool>() : fallback;
 	};
-	G::Vars.hitFeedbackEnabled = readBool("Enabled", false);
-	G::Vars.hitFeedbackNumbers = readBool("DamageNumbers", true);
-	G::Vars.hitFeedbackHitMarker = readBool("HitMarker", true);
-	G::Vars.hitFeedbackCommon = readBool("CommonHits", false);
+	G::Vars.hitFeedbackEnabled = readBool("Enabled", G::Vars.hitFeedbackEnabled);
+	G::Vars.hitFeedbackNumbers = readBool("Numbers", G::Vars.hitFeedbackNumbers);
+	G::Vars.hitFeedbackHitMarker = readBool("HitMarker", G::Vars.hitFeedbackHitMarker);
+	G::Vars.hitFeedbackCommon = readBool("CommonHits", G::Vars.hitFeedbackCommon);
 }
 
 void HitFeedback::SaveConfig(nlohmann::json& doc) const {
 	auto& section = NecolaConfig::EnsureSectionObject(doc, "HitFeedback");
 	section["Enabled"] = G::Vars.hitFeedbackEnabled;
-	section["DamageNumbers"] = G::Vars.hitFeedbackNumbers;
+	section["Numbers"] = G::Vars.hitFeedbackNumbers;
 	section["HitMarker"] = G::Vars.hitFeedbackHitMarker;
 	section["CommonHits"] = G::Vars.hitFeedbackCommon;
 }

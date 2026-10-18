@@ -4,6 +4,7 @@
 #include "../../Feature/BodygroupFix/BodygroupFix.h"
 #include "../../Feature/CampaignTimer/CampaignTimer.h"
 #include "../../Feature/KillFeedback/KillFeedback.h"
+#include "../../Feature/DamagePipeline/DamagePipeline.h"
 #include "../../Feature/HitFeedback/HitFeedback.h"
 #include "../../Feature/SequenceModify/SequenceModify.h"
 #include "../../../diag.h"
@@ -52,6 +53,7 @@ void __fastcall BaseClient::LevelShutdown::Detour(void* ecx, void* edx)
 	F::CampaignTimerMgr.OnLevelShutdown();
 	F::KillFeedbackMgr.Reset();
 	F::HitFeedbackMgr.Reset();
+	DamagePipeline::Reset();
 	F::BodygroupFix.Reset();
 	F::AdsMgr.ResetLevelState();
 	F::SModify.init();
@@ -123,7 +125,6 @@ int __fastcall BaseClient::IN_KeyEvent::Detour(void* ecx, void* edx, int eventco
 		}
 	}
 	if (eventcode == 1 && pszCurrentBinding && std::strcmp(pszCurrentBinding, "+attack") == 0) {
-		F::HitFeedbackMgr.ArmLocalAttack();
 	}
 
 	// ADS zoom / mixed toggle

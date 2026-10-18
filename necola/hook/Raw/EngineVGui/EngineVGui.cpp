@@ -8,6 +8,7 @@
 #include "../../Feature/AdsSupport/AdsSupport.h"
 #include "../../Feature/CampaignTimer/CampaignTimer.h"
 #include "../../Feature/KillFeedback/KillFeedback.h"
+#include "../../Feature/DamagePipeline/DamagePipeline.h"
 #include "../../Feature/HitFeedback/HitFeedback.h"
 #include "../../../diag.h"
 
@@ -101,7 +102,8 @@ void __fastcall EngineVGui::Paint::Detour(void* ecx, void* edx, int mode)
 		F::KillFeedbackMgr.Draw();
 		if (firstInGamePaint) NecolaDiagLog("MapStage: first in-game Paint kill feedback done");
 		if (L4N::Env.HudVisible()) {
-			F::HitFeedbackMgr.Draw();
+			DamagePipeline::Pump();
+	F::HitFeedbackMgr.Draw();
 		}
 		if (firstInGamePaint) NecolaDiagLog("MapStage: first in-game Paint hit feedback done");
 
