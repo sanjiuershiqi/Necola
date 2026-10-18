@@ -255,6 +255,16 @@ void KillFeedback::LoadThemes() {
 				}
 			}
 			styleFrom("streak_default", theme.streakDefault);
+			// skeeto's fixed fx event keys (MatchFxKey + DetectCrown).
+			for (const char* key : {"skeet", "melee_skeet", "headshot_skeet", "crit_text",
+					"melee_crown", "perfect_crown", "crown"}) {
+				const auto it = doc.find(key);
+				if (it != doc.end() && it->is_object()) {
+					KillStyle style;
+					loadStyle(*it, style);
+					if (style.enabled) theme.fx[key] = style;
+				}
+			}
 			theme.loaded = true;
 			m_themes.push_back(std::move(theme));
 		} catch (...) {
@@ -721,6 +731,13 @@ void KillFeedback::HandleEvent(IGameEvent* event) {
 		kill.userId = witchId;
 		kill.time = PresentationTime();
 		kill.source = "witch_killed";
+		// DetectCrown: melee weapon => melee_crown, otherwise a one-shot kill =>
+		// perfect_crown, and crown as the generic fallback.
+		const char* fxKey = nullptr;
+		if (IsMeleeWeaponName(event->GetString("weapon", ""))) fxKey = "melee_crown";
+		else if (event->GetBool("oneshot", false)) fxKey = "perfect_crown";
+		else fxKey = "crown";
+		DispatchFx(fxKey, Vector());
 		HandleKill(kill);
 		return;
 	}
@@ -948,4 +965,24 @@ void KillFeedback::SaveConfig() const {
 	nlohmann::json doc = NecolaConfig::LoadConfig();
 	SaveConfig(doc);
 	NecolaConfig::SaveConfig(doc);
+}
+
+// ------------------------------------------------------------- fx channel ----
+// skeeto's SKT_Fx_DispatchNamedFx + DetectCrown: the fixed keys below are looked
+// up in the theme and played like a kill style, at the victim's world position.
+bool KillFeedback::DispatchFx(const char* key, const Vector& position) {
+	if (!key || !*key) return false;
+	LoadThemes();
+	const KillTheme* themes[2] = {nullptr, nullptr};
+	if (m_siTheme != "off") themes[0] = FindTheme("si", m_siTheme);
+	if (m_ciTheme != "off") themes[1] = FindTheme("ci", m_ciTheme);
+	for (const KillTheme* theme : themes) {
+		if (!theme) continue;
+		const auto it = theme->fx.find(key);
+		if (it == theme->fx.end()) continue;
+		Log("fx %s overlay=%s", key, it->second.overlay.c_str());
+		PlayStyle(it->second, kKillDurationMs, /*allowRepeat=*/true);
+		return true;
+	}
+	return false;
 }
