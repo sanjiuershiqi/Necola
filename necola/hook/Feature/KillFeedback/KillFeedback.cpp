@@ -675,6 +675,18 @@ void KillFeedback::HandleEvent(IGameEvent* event) {
 		if (userId > 0) m_tracked[userId] = classification;
 		return;
 	}
+	if (std::strcmp(name, "lunge_pounce") == 0 || std::strcmp(name, "jockey_ride") == 0) {
+		// skeeto tracks the pounce/ride state itself (SKT_GameEvent_Dispatch_60);
+		// this is the equivalent marker used by the skeet family below.
+		const int userId = event->GetInt("userid", 0);
+		if (userId > 0) m_airborne.insert(userId);
+		return;
+	}
+	if (std::strcmp(name, "pounce_stopped") == 0 || std::strcmp(name, "jockey_ride_end") == 0) {
+		m_airborne.erase(event->GetInt("userid", 0));
+		return;
+	}
+
 	if (std::strcmp(name, "player_spawn") == 0) {
 		RefreshSpecialVictims();
 		return;
@@ -759,6 +771,7 @@ void KillFeedback::HandleEvent(IGameEvent* event) {
 	kill.time = PresentationTime();
 	kill.source = name;
 	m_pendingKills.push_back(kill);
+	m_airborne.erase(kill.userId);
 }
 
 void KillFeedback::HandleKill(const PendingKill& kill) {
@@ -786,6 +799,7 @@ bool KillFeedback::InitListeners() {
 		"round_start", "round_end", "mission_lost", "map_transition",
 		"player_hurt", "infected_hurt", "melee_kill", "player_spawn",
 		"player_death", "infected_death", "witch_killed",
+		"lunge_pounce", "pounce_stopped", "jockey_ride", "jockey_ride_end",
 		"boomer_exploded", "charger_killed", "spitter_killed", "jockey_killed", "tank_killed",
 	};
 	bool allOk = true;
@@ -863,6 +877,7 @@ void KillFeedback::Reset() {
 	m_lastRefresh = -1000.0f;
 	m_themeWarned = false;
 	m_precached.clear();
+	m_airborne.clear();
 }
 
 void KillFeedback::Shutdown() {

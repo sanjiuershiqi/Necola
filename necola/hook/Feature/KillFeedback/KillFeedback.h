@@ -182,6 +182,8 @@ private:
 	float m_lastRefresh = -1000.0f;
 	std::unordered_map<int, Victim> m_victims;
 	std::unordered_map<int, Classification> m_tracked;
+	// Hunter/Jockey currently pouncing or riding (skeet-family gating).
+	std::unordered_set<int> m_airborne;
 	int m_logBudget = 30;
 };
 
