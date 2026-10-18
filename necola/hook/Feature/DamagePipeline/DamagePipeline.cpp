@@ -7,6 +7,10 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <utility>
+#include <vector>
+#include "../../../sdk/l4d2/includes/dt_recv.h"
+#include "../../../sdk/l4d2/interfaces/BaseClientDLL.h"
 
 namespace {
 
@@ -188,6 +192,75 @@ void Drain() {
 }
 
 // ------------------------------------------------------------------- listener --
+// skeeto feeds its hit feedback from health deltas (its 44-byte queue is produced
+// by netvar health changes, not by player_hurt). Servers that do not forward
+// player_hurt for specials therefore still produce hits this way.
+using HealthProxyFn = void(*)(const CRecvProxyData*, void*, void*);
+std::vector<std::pair<RecvProp*, HealthProxyFn>> g_healthProps;
+
+void HealthProxy(const CRecvProxyData* data, void* structure, void* output) {
+	int oldHealth = output ? *static_cast<int*>(output) : 0;
+	HealthProxyFn original = nullptr;
+	for (const auto& entry : g_healthProps) {
+		if (data && data->m_pRecvProp == entry.first) { original = entry.second; break; }
+	}
+	if (original) original(data, structure, output);
+	else if (output && data) *static_cast<int*>(output) = data->m_Value.m_Int;
+	if (!data || !output) return;
+	const int newHealth = *static_cast<int*>(output);
+	if (oldHealth <= 0 || newHealth >= oldHealth || oldHealth > 100000 || newHealth < 0) return;
+	const int entIndex = data->m_ObjectID;
+	auto* entity = I::ClientEntityList ? I::ClientEntityList->GetClientEntity(entIndex) : nullptr;
+	auto* player = entity ? entity->As<C_TerrorPlayer*>() : nullptr;
+	if (!player) return;
+	Record record;
+	record.tick = Now();
+	record.mapGeneration = g_mapGeneration;
+	record.entIndex = entIndex;
+	record.userId = 0;      // resolved from the entity, not from an event
+	record.damage = oldHealth - newHealth;
+	record.health = newHealth;
+	record.gun = false;     // health deltas carry no weapon information
+	const Vector origin = player->m_vecOrigin();
+	record.x = origin.x; record.y = origin.y; record.z = origin.z;
+	record.headZ = 50.0f;
+	Enqueue(record);
+}
+
+RecvProp* FindRecvPropRecursive(RecvTable* table, const char* name, int depth = 0) {
+	if (!table || !name || depth > 16) return nullptr;
+	for (int i = 0; i < table->m_nProps; ++i) {
+		RecvProp* prop = &table->m_pProps[i];
+		if (prop->m_pVarName && std::strcmp(prop->m_pVarName, name) == 0) return prop;
+		if (RecvProp* nested = FindRecvPropRecursive(prop->GetDataTable(), name, depth + 1)) return nested;
+	}
+	return nullptr;
+}
+
+// Hook m_iHealth so health deltas feed the queue even when the server does not
+// forward player_hurt (skeeto's own hit feedback is produced this way).
+bool InstallHealthProxy() {
+	if (!I::BaseClient) return false;
+	if (!g_healthProps.empty()) return true;
+	for (ClientClass* clientClass = I::BaseClient->GetAllClasses(); clientClass;
+		clientClass = clientClass->m_pNext) {
+		if (!clientClass->m_pNetworkName) continue;
+		if (std::strcmp(clientClass->m_pNetworkName, "CBasePlayer") != 0 &&
+			std::strcmp(clientClass->m_pNetworkName, "CTerrorPlayer") != 0) continue;
+		RecvProp* prop = FindRecvPropRecursive(clientClass->m_pRecvTable, "m_iHealth");
+		if (!prop || !prop->GetProxyFn() || prop->GetProxyFn() == HealthProxy) continue;
+		bool duplicate = false;
+		for (const auto& entry : g_healthProps) {
+			if (entry.first == prop) { duplicate = true; break; }
+		}
+		if (duplicate) continue;
+		g_healthProps.emplace_back(prop, prop->GetProxyFn());
+		prop->SetProxyFn(HealthProxy);
+	}
+	return !g_healthProps.empty();
+}
+
+
 class PipelineListener final : public IGameEventListener2 {
 public:
 	void FireGameEvent(IGameEvent* event) override;
@@ -278,6 +351,7 @@ bool InitListeners() {
 		allOk = I::GameEventManager->AddListener(&g_listener, name, false) && allOk;
 	}
 	g_registered = true;
+	InstallHealthProxy();
 	return allOk;
 }
 

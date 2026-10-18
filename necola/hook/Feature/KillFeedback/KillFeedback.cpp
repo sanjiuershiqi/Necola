@@ -744,7 +744,7 @@ void KillFeedback::HandleEvent(IGameEvent* event) {
 		Trigger(false, classification, 0);
 		return;
 	}
-	if (std::strcmp(name, "player_death") == 0) {
+	if (std::strcmp(name, "player_death") == 0 || std::strcmp(name, "zombie_death") == 0) {
 		if (!G::Vars.killFeedbackEnabled) return;
 		const bool localKill = IsLocalAttacker(event, "attacker");
 		Log("player_death vn=%s atk=%d atkEnt=%d local=%d",
@@ -840,7 +840,7 @@ bool KillFeedback::InitListeners() {
 	static const char* const kEvents[] = {
 		"round_start", "round_end", "mission_lost", "map_transition",
 		"player_hurt", "infected_hurt", "melee_kill", "player_spawn",
-		"player_death", "infected_death", "witch_killed",
+		"player_death", "zombie_death", "infected_death", "witch_killed",
 		"lunge_pounce", "pounce_stopped", "jockey_ride", "jockey_ride_end",
 		"boomer_exploded", "charger_killed", "spitter_killed", "jockey_killed", "tank_killed",
 	};
