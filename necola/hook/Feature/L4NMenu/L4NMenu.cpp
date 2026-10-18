@@ -38,11 +38,23 @@ ToggleDesc g_toggles[] = {
 	{ "特殊感染者反馈", &G::Vars.killFeedbackSpecial },
 	{ "伤害数字", &G::Vars.hitFeedbackEnabled },
 	{ "准星命中标记", &G::Vars.hitFeedbackHitMarker },
+	{ "命中数字（伤害数值）", &G::Vars.hitFeedbackNumbers },
+	{ "普感伤害数字", &G::Vars.hitFeedbackCommon },
+	{ "枪械击杀", &G::Vars.killFeedbackFirearm },
+	{ "爆头击杀", &G::Vars.killFeedbackHeadshot },
+	{ "近战击杀", &G::Vars.killFeedbackMelee },
+	{ "爆炸击杀", &G::Vars.killFeedbackExplosion },
+	{ "连杀特效", &G::Vars.killFeedbackMultiKill },
+	{ "特感视觉优先", &G::Vars.killFeedbackSiDedicated },
+	{ "特感音效优先", &G::Vars.killFeedbackSiSound },
+	{ "Tank 反馈", &G::Vars.killFeedbackTank },
+	{ "Witch 反馈", &G::Vars.killFeedbackWitch },
 };
 constexpr int kToggleCount = static_cast<int>(sizeof(g_toggles) / sizeof(g_toggles[0]));
 
 // Action ids. Toggles use 1..kToggleCount; anything else is special-cased.
 constexpr int kActionHitMode = 100;
+constexpr int kActionSoundVolume = 101;
 
 // ---- keyvalues helpers ----------------------------------------------------
 std::string KvQuote(const std::string& text) {
@@ -83,6 +95,17 @@ char* NecolaMenuCallback(void* user_data) {
 	} else if (action == kActionHitMode) {
 		G::Vars.killFeedbackHitMode = (G::Vars.killFeedbackHitMode + 1) % 3;
 		MenuLog("l4n menu: hit mode -> %d", G::Vars.killFeedbackHitMode);
+	} else if (action == kActionSoundVolume) {
+		static const int steps[5] = {0, 25, 50, 75, 100};
+		int next = 100;
+		for (int i = 0; i < 5; ++i) {
+			if (steps[i] == G::Vars.killFeedbackSoundVolume) {
+				next = steps[(i + 1) % 5];
+				break;
+			}
+		}
+		G::Vars.killFeedbackSoundVolume = next;
+		MenuLog("l4n menu: sound volume -> %d", next);
 	}
 	// Returning the same tree with "_refresh" asks L4N to refresh in place
 	// instead of stacking a new submenu (see the contract in l4n_plugin.h).
@@ -116,6 +139,19 @@ std::string BuildRootKv(bool refresh) {
 	kv += "\"\n\t\t\"user_data\" \"";
 	kv += KvUIntPtr(reinterpret_cast<const void*>(static_cast<std::intptr_t>(kActionHitMode)));
 	kv += "\"\n\t}\n";
+
+	// Sound volume cycles 0/25/50/75/100 like the VGUI menu.
+	{
+		char label[64] = {};
+		_snprintf_s(label, sizeof(label), _TRUNCATE, "音效音量：%d%%", G::Vars.killFeedbackSoundVolume);
+		kv += "\t\"";
+		kv += KvQuote(label);
+		kv += "\"\n\t{\n\t\t\"callback\" \"";
+		kv += callback;
+		kv += "\"\n\t\t\"user_data\" \"";
+		kv += KvUIntPtr(reinterpret_cast<const void*>(static_cast<std::intptr_t>(kActionSoundVolume)));
+		kv += "\"\n\t}\n";
+	}
 
 	// Keep a door back to the full VGUI menu (ADS pages live there).
 	kv += "\t\"打开 Necola 完整菜单\"\n\t{\n\t\t\"cmd\" \"necola_menu\"\n\t}\n";
