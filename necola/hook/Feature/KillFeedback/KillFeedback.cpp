@@ -863,6 +863,22 @@ void KillFeedback::OnSpecialHealthDrop(const Vector& position) {
 	m_pendingHits.push_back(hit);
 }
 
+// Lethal health delta on a special: build the same PendingKill the witch branch uses
+// and hand it to HandleKill, so the feedback path is identical to the one that works.
+void KillFeedback::OnSpecialKilledByHealth(int zombieClass, const Vector& position) {
+	if (!G::Vars.killFeedbackEnabled) return;
+	const Victim victim = VictimFromZombieClass(zombieClass);
+	if (victim == Victim::Unknown) return;
+	PendingKill kill;
+	kill.victim = victim;
+	kill.userId = 0;
+	kill.position = position;
+	kill.valid = true;
+	kill.time = PresentationTime();
+	kill.source = "health_delta";
+	HandleKill(kill);
+}
+
 void KillFeedback::RefreshSpecialVictims() {
 	if (!I::EngineClient || !I::ClientEntityList) return;
 	const float now = PresentationTime();

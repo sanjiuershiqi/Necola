@@ -89,6 +89,9 @@ public:
 	void LoadThemes();
 	// Sink for a confirmed local hit (DamagePipeline).
 	void OnSpecialHealthDrop(const Vector& position);
+	// Health-delta kill sink: the netvar proxy always fires, unlike player_death on
+	// servers that do not forward SI death events. Same path as witch_killed.
+	void OnSpecialKilledByHealth(int zombieClass, const Vector& position);
 	void RefreshSpecialVictims();
 
 	void Draw();

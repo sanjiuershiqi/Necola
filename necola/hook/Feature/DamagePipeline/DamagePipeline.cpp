@@ -224,6 +224,19 @@ void HealthProxy(const CRecvProxyData* data, void* structure, void* output) {
 	const Vector origin = player->m_vecOrigin();
 	record.x = origin.x; record.y = origin.y; record.z = origin.z;
 	record.headZ = 50.0f;
+
+	// Lethal delta: treat it as a special kill through the same path witch_killed
+	// uses. Gate() keeps the attribution sane (the victim must be in the view cone).
+	if (newHealth <= 0) {
+		Record kill = record;
+		kill.damage = oldHealth;
+		kill.gun = true;
+		if (Gate(kill)) {
+			F::KillFeedbackMgr.OnSpecialKilledByHealth(player->m_zombieClass(), origin);
+			Log("health-kill class=%d ent=%d", player->m_zombieClass(), entIndex);
+		}
+		return;
+	}
 	Enqueue(record);
 }
 
