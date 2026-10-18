@@ -37,7 +37,7 @@ std::uint32_t Now() {
 	return static_cast<std::uint32_t>(GetTickCount());
 }
 
-int g_logBudget = 30;
+int g_logBudget = 150;
 void Log(const char* format, ...) {
 	if (g_logBudget <= 0) return;
 	--g_logBudget;
@@ -309,10 +309,23 @@ void KillFeedback::SetTheme(const char* channel, const std::string& themeId) {
 // -------------------------------------------------------------- victims ----
 bool KillFeedback::IsLocalAttacker(IGameEvent* event, const char* field) const {
 	if (!event || !I::EngineClient) return false;
+	const int localIndex = I::EngineClient->GetLocalPlayer();
+	if (localIndex <= 0) return false;
+	// Exact port of SKT_Evt_InfectedDeath (0x10052200), which accepts three cases:
+	//   1. attacker user id == the local user id
+	//   2. GetPlayerForUserID(attacker) == the local player index
+	//   3. attackerentid == the local player index   (checked even when the
+	//      attacker user id is 0 — skeeto does not bail out on a missing uid)
 	const int userId = event->GetInt(field, 0);
-	if (userId <= 0) return false;
-	const int resolved = I::EngineClient->GetPlayerForUserID(userId);
-	return resolved > 0 && resolved == I::EngineClient->GetLocalPlayer();
+	if (userId > 0) {
+		const int resolved = I::EngineClient->GetPlayerForUserID(userId);
+		if (resolved > 0 && resolved == localIndex) return true;
+	}
+	if (std::strcmp(field, "attacker") != 0) return false;
+	const int attackerEntId = event->GetInt("attackerentid", 0);
+	return attackerEntId > 0 && attackerEntId == localIndex;
+}
+		event->GetInt("attackerentid", 0) == I::EngineClient->GetLocalPlayer();
 }
 
 KillFeedback::Victim KillFeedback::VictimFromZombieClass(int zombieClass) const {
@@ -735,7 +748,11 @@ void KillFeedback::HandleEvent(IGameEvent* event) {
 	}
 	if (std::strcmp(name, "player_death") == 0) {
 		if (!G::Vars.killFeedbackEnabled) return;
-		if (!IsLocalAttacker(event, "attacker")) return;
+		const bool localKill = IsLocalAttacker(event, "attacker");
+		Log("player_death vn=%s atk=%d atkEnt=%d local=%d",
+			event->GetString("victimname", "?"), event->GetInt("attacker", 0),
+			event->GetInt("attackerentid", 0), localKill ? 1 : 0);
+		if (!localKill) return;
 		const Victim victim = VictimFromEvent(event);
 		const int userId = event->GetInt("userid", 0);
 		// Unresolved victim: leave it to the per-class dedicated event below.
